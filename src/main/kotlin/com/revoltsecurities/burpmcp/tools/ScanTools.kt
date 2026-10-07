@@ -162,9 +162,9 @@ class ScanTools(
     companion object {
         private const val DESC_AUDIT =
             "Start a Burp audit (active/passive), optionally seeded with a request; poll with scan_task_status. " +
-                "The stored session profile (session_set) + cookie/headers args are injected into the seed so the " +
-                "audit starts authenticated. IMPORTANT: Montoya cannot attach auth/macros to scanner-GENERATED " +
-                "requests — to keep those authed, set a session profile AND add, once in Burp, a Session handling " +
-                "rule whose action is \"Invoke a Burp extension\" → Revolt MCP (and/or a Burp login macro for token refresh)."
+                "For AUTHENTICATED scans: call session_set first and make sure the target is IN SCOPE — the stored " +
+                "profile is injected into the seed AND auto-applied to every in-scope scanner/crawler request (no " +
+                "Burp session-handling rule needed; credentials are never sent to out-of-scope hosts). Only token " +
+                "REFRESH (401 → re-login) still needs a Burp login macro + session-handling rule configured in the UI."
     }
 }

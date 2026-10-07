@@ -266,7 +266,7 @@ class MainTab(
                 add(Box.createHorizontalStrut(6))
                 add(JButton("Clear session").apply { addActionListener { clearSessionProfile() } })
                 add(Box.createHorizontalStrut(12))
-                add(JLabel("Auto-applied to send/intruder/race tools + audit seed, and (with a Burp session-handling rule) to scanner traffic. Agents can also use session_set.").apply { foreground = DesignTokens.textMuted })
+                add(JLabel("Auto-applied to send/intruder/race tools, the audit seed, and in-scope scanner/crawler traffic. Agents can also use session_set. Token refresh (re-login on 401) needs a Burp login macro + session-handling rule.").apply { foreground = DesignTokens.textMuted })
             },
             BorderLayout.SOUTH,
         )

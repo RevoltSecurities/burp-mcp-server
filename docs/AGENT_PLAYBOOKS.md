@@ -46,8 +46,9 @@ pull bodies only where it matters.
 profile ONCE; it is auto-applied to every `http_send`/`http_send_analyze`/`http_send_compare`/`intruder_attack`/
 `race_*` request and the `scan_audit_start` seed, and persists across context compaction/restarts. Each send
 tool also takes per-call `cookie`/`headers` overrides. If a response comes back `status: 0` with an `error`, the
-request got no response (bad Host/port/TLS or missing auth) — set a session and retry. For scanner-generated
-traffic, also add a Burp session-handling rule → "Invoke a Burp extension" → Revolt MCP.
+request got no response (bad Host/port/TLS or missing auth) — set a session and retry. Authenticated **scans**
+need only `session_set` + an in-scope target: the profile is auto-injected into in-scope scanner/crawler traffic
+(never off-scope). Only token refresh (re-login on 401) needs a Burp login macro + session-handling rule in the UI.
 
 **Jump to any message:** `get_http_message { id }` re-resolves `ph:`/`sm:`/`iss:`/`ws:` ids live — go straight to
 an id (even after context loss) without re-paginating; use `section=body` (or `full`) to read content.

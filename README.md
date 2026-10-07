@@ -291,9 +291,14 @@ survives agent context compaction and Burp restarts (stored encrypted):
 
 The profile is auto-applied to `http_send`, `http_send_analyze`, `http_send_compare`, `intruder_attack`,
 `race_*` and the `scan_audit_start` seed; every send tool also takes per-call `cookie`/`headers` overrides. View
-or edit it on the **Session** tab. For **scanner-generated** requests (Burp builds those itself, and the Montoya
-API can't attach auth to them), also add one Burp session-handling rule whose action is **"Invoke a Burp
-extension" → Revolt MCP**, plus a Burp login macro if you need token refresh on 401.
+or edit it on the **Session** tab.
+
+**Authenticated scans** need only this profile plus a defined **target scope** — the extension registers a Burp
+HTTP handler that injects the profile into every **in-scope** request the scanner/crawler generates (and never
+sends it to out-of-scope hosts, so your token can't leak via an off-site redirect). No session-handling rule to
+configure. The only thing that still needs Burp's native machinery is **token refresh** (re-login on 401): wire a
+Burp login macro + session-handling rule in the UI — the extension also exposes a session-handling action
+("Invoke a Burp extension → Revolt MCP") you can pair with that macro.
 
 If a send comes back with `status: 0` and an `error`, the request got no response (bad Host/port/TLS or missing
 auth) — add a session and retry; the tools say so explicitly rather than looking "identical".
@@ -347,7 +352,7 @@ Tests: `./gradlew check`.
 
 ## Status & roadmap
 
-Current: **v0.2.0 (beta).** 133 unit tests; passed a multi-pass security & correctness code review and a round
+Current: **v0.2.1 (beta).** 135 unit tests; passed a multi-pass security & correctness code review and a round
 of live-agent field testing. Planned: public 1.0, standalone stdio bridge, streamable-HTTP MCP federation.
 
 ## License

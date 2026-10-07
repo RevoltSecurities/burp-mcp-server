@@ -1,3 +1,15 @@
+# Revolt MCP Server v0.2.1 (beta)
+
+Makes **authenticated scans work with no manual Burp setup**. The extension now registers a Burp HTTP handler
+that injects the stored session profile into every **in-scope** request the scanner/crawler generates — so an
+authenticated scan needs only `session_set` + a defined target scope, with **no session-handling rule to
+configure**. Credentials are scope-gated and never attached to out-of-scope hosts (e.g. an off-site redirect the
+scanner follows), so your token can't leak. The opt-in session-handling action is retained for pairing with a
+Burp login macro when you need token **refresh** (re-login on 401), which is the only part still configured in
+Burp's UI. Tool descriptions, README, playbooks and the Session tab updated accordingly. No API changes.
+
+---
+
 # Revolt MCP Server v0.2.0 (beta)
 
 Field-feedback release: fixes 10 defects/gaps a live AI agent found driving v0.1.1 against real targets, so

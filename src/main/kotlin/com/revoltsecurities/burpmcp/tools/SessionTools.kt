@@ -66,8 +66,8 @@ class SessionTools(
         private const val DESC_SET =
             "Store a reusable auth/session profile (cookies, headers, optional Host override) that is AUTO-APPLIED " +
                 "to every http_send/http_send_analyze/http_send_compare/intruder_attack/race_* request and the audit " +
-                "seed, and injected into scanner-generated requests via a Burp session-handling action. Set it once " +
-                "to keep long, compaction-prone runs authenticated. For scanner-generated traffic you must also add, " +
-                "one time in Burp, a Session handling rule whose action is \"Invoke a Burp extension\" → Revolt MCP."
+                "seed, AND to every IN-SCOPE request Burp's scanner/crawler generates (no session-handling rule " +
+                "needed; the profile is never sent to out-of-scope hosts). Set it once to keep long, compaction-prone " +
+                "runs authenticated. Only token REFRESH (re-login on 401) still needs a Burp login macro + rule in the UI."
     }
 }
