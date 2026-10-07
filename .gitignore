@@ -1,0 +1,37 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Build output
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local / secrets
+*.local
+local.properties
+*.p12
+*.keystore
+secrets.*
+
+# Logs
+*.log
+
+# Local reference project (its own git repo)
+docs/burp-ai-agent/
+
+# Personal research / design notes — not for public release
+docs/research/
+.claude/plans/
