@@ -16,6 +16,7 @@ Code, Claude Desktop, Cursor, OpenAI Codex, VS Code, custom SDK scripts, or dete
 ![JVM](https://img.shields.io/badge/JVM-21-ED8B00)
 ![MCP](https://img.shields.io/badge/MCP-streamable--http%20%7C%20sse-2ea44f)
 ![Tools](https://img.shields.io/badge/tools-56%2B-informational)
+![License](https://img.shields.io/badge/license-MIT-blue)
 ![Status](https://img.shields.io/badge/status-beta-yellow)
 
 </div>
@@ -329,4 +330,4 @@ live-Burp QA sign-off, CI, standalone stdio bridge, streamable-HTTP MCP federati
 
 ## License
 
-To be announced.
+Released under the [MIT License](LICENSE). © 2026 RevoltSecurities.
