@@ -38,7 +38,7 @@ jobs:
           name: Revolt MCP Server ${{ github.ref_name }}
           body_path: RELEASE_NOTES.md
           draft: false
-          prerelease: false
+          prerelease: true   # beta releases until a public 1.0
           files: |
             build/libs/*.jar
             build/libs/SHA256SUMS.txt
