@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Revolt MCP Server logo">
+  <title>Revolt MCP Server</title>
+  <defs>
+    <linearGradient id="revoltBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF8A3D"/>
+      <stop offset="1" stop-color="#E2470F"/>
+    </linearGradient>
+    <linearGradient id="revoltSheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- badge -->
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#revoltBg)"/>
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#revoltSheen)"/>
+
+  <!-- connections: hub -> agent nodes (MCP) -->
+  <g stroke="#ffffff" stroke-width="9" stroke-linecap="round">
+    <line x1="128" y1="128" x2="128" y2="66"/>
+    <line x1="128" y1="128" x2="73" y2="186"/>
+    <line x1="128" y1="128" x2="183" y2="186"/>
+  </g>
+
+  <!-- agent/tool nodes -->
+  <g fill="#ffffff">
+    <circle cx="128" cy="66" r="15"/>
+    <circle cx="73" cy="186" r="15"/>
+    <circle cx="183" cy="186" r="15"/>
+  </g>
+
+  <!-- pentest target ring around the hub -->
+  <circle cx="128" cy="128" r="31" fill="none" stroke="#ffffff" stroke-width="7"
+          stroke-dasharray="30 18" stroke-linecap="round"/>
+
+  <!-- hub -->
+  <circle cx="128" cy="128" r="16.5" fill="#ffffff"/>
+  <circle cx="128" cy="128" r="7" fill="url(#revoltBg)"/>
+</svg>

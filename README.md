@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.svg" alt="Revolt MCP Server" width="128" height="128">
+
 # Revolt MCP Server for Burp Suite
 
 **Drive Burp Suite from AI agents and automation — safely, with context-managed output.**
