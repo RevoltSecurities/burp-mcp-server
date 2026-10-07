@@ -63,9 +63,11 @@ without ever drowning in tokens, and with mutating actions gated behind an expli
 
 ## Features
 
-- **56+ MCP tools** spanning HTTP/Repeater, Scanner & Crawler (Pro), Collaborator (Pro), a programmatic
+- **59+ MCP tools** spanning HTTP/Repeater, Scanner & Crawler (Pro), Collaborator (Pro), a programmatic
   Intruder (sniper/pitchfork/clusterbomb with wordlist files), race conditions, proxy/site-map/issue
   browsing, cookies, scope, config/persistence, nuclei ingestion, webhooks, MCP federation and events.
+- **Authenticated testing** — a reusable session profile (cookies/headers/Host) set once and auto-applied to
+  every send/intruder/race request and scans; survives context compaction and restarts (encrypted at rest).
 - **Selectable transport** — Streamable-HTTP (default) or HTTP+SSE, chosen in the UI.
 - **Context-managed output** — keyset-cursor pagination, typed rows, byte-range body slicing with resumable
   markers, whole-response byte budget, binary omission.
@@ -252,13 +254,14 @@ Switch transport on the **Server** tab; the **Connect** tab regenerates the matc
 ## Tool catalog
 
 <details>
-<summary><b>56+ tools by domain (click to expand)</b></summary>
+<summary><b>59+ tools by domain (click to expand)</b></summary>
 
 - **Status/Config:** `status`, `burp_version`, `project_options_get/set`, `user_options_get/set`,
   `task_engine_state`, `persistence_get/set/keys`, `bambda_import`
 - **Utilities:** `url_encode/decode`, `base64_encode/decode`, `hash_compute`, `jwt_decode`, `decode_as`
 - **Requests & analysis:** `http_send`, `http_send_analyze`, `http_send_compare`, `request_parse`,
   `response_parse`, `params_extract`, `find_reflected`, `diff_requests`, `repeater_create_tab`, `intruder_send`
+- **Session / auth:** `session_set`, `session_get`, `session_clear` (reusable cookies/headers auto-applied to all send tools)
 - **History / Site map / Scope:** `get_proxy_http_history`, `get_proxy_ws_history`, `get_site_map`,
   `scope_check`, `scope_include`, `scope_exclude`, `sitemap_add`
 - **Output:** `get_http_message` (byte-range slices)
@@ -275,6 +278,25 @@ Switch transport on the **Server** tab; the **Connect** tab regenerates the matc
 </details>
 
 See **[docs/AGENT_PLAYBOOKS.md](docs/AGENT_PLAYBOOKS.md)** for how an agent chains these like a human pentester.
+
+## Authenticated testing
+
+Set an auth/session profile **once** and every send reuses it — no re-pasting cookies on each call, and it
+survives agent context compaction and Burp restarts (stored encrypted):
+
+```jsonc
+// session_set
+{ "cookies": ["session=abc", "csrf=xyz"], "headers": ["Authorization: Bearer eyJ..."] }
+```
+
+The profile is auto-applied to `http_send`, `http_send_analyze`, `http_send_compare`, `intruder_attack`,
+`race_*` and the `scan_audit_start` seed; every send tool also takes per-call `cookie`/`headers` overrides. View
+or edit it on the **Session** tab. For **scanner-generated** requests (Burp builds those itself, and the Montoya
+API can't attach auth to them), also add one Burp session-handling rule whose action is **"Invoke a Burp
+extension" → Revolt MCP**, plus a Burp login macro if you need token refresh on 401.
+
+If a send comes back with `status: 0` and an `error`, the request got no response (bad Host/port/TLS or missing
+auth) — add a session and retry; the tools say so explicitly rather than looking "identical".
 
 ## Context-managed output
 
@@ -294,7 +316,7 @@ and omits binary content. The whole response is capped to a byte budget (~25k to
 
 ## Configuration reference
 
-Settings live on the **Server**/**Tools** tabs and persist in Burp's project preferences (secrets encrypted).
+Settings live on the **Server**/**Tools**/**Session** tabs and persist in Burp's project preferences (secrets encrypted).
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -325,8 +347,8 @@ Tests: `./gradlew check`.
 
 ## Status & roadmap
 
-Current: **v0.1.0 (beta).** 109 unit tests; passed a multi-pass security & correctness code review. Planned:
-live-Burp QA sign-off, CI, standalone stdio bridge, streamable-HTTP MCP federation.
+Current: **v0.2.0 (beta).** 133 unit tests; passed a multi-pass security & correctness code review and a round
+of live-agent field testing. Planned: public 1.0, standalone stdio bridge, streamable-HTTP MCP federation.
 
 ## License
 

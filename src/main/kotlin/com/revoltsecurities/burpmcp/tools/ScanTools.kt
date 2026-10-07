@@ -1,9 +1,13 @@
 package com.revoltsecurities.burpmcp.tools
 
+import com.revoltsecurities.burpmcp.config.SessionProfile
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class JsEndpointsResult(val endpoints: List<String>, val count: Int, val scanned: Int, val truncated: Boolean)
+data class JsEndpoint(val endpoint: String, val source: String, val line: Int, val messageId: String? = null)
+
+@Serializable
+data class JsEndpointsResult(val endpoints: List<JsEndpoint>, val count: Int, val scanned: Int, val truncated: Boolean)
 
 /**
  * Scanner / crawler / Collaborator automation + recon (Professional for the scan/collab tools). Drives
@@ -15,6 +19,7 @@ class ScanTools(
     private val collaborator: BurpCollaborator,
     private val dataSource: BurpDataSource,
     private val guard: ScopeGuard,
+    private val sessionProfile: () -> SessionProfile = { SessionProfile() },
     private val maxEndpoints: Int = 300,
     private val maxResponsesScanned: Int = 300,
 ) {
@@ -49,15 +54,19 @@ class ScanTools(
             string("host", "Target host for the seed request; REQUIRED when content is given. " + Descriptions.TARGET_HOST)
             integer("port", "Target port (default 443 if secure else 80).")
             boolean("secure", "Use TLS.", default = true)
+            string("cookie", Descriptions.SESSION_COOKIE)
+            stringArray("headers", Descriptions.SESSION_HEADERS)
         }
-        return ToolSpec("scan_audit_start", "Start audit", "Start a Burp audit (active/passive), optionally seeded with a request; poll with scan_task_status.", "Scanner", schema, mutating = true, proOnly = true) { args ->
+        return ToolSpec("scan_audit_start", "Start audit", DESC_AUDIT, "Scanner", schema, mutating = true, proOnly = true) { args ->
             val content = args.str("content")
             val requests = if (content != null) {
                 val host = args.str("host") ?: return@ToolSpec Results.error("host is required when content is provided.")
                 val secure = args.boolOr("secure", true)
                 val port = args.int("port") ?: if (secure) 443 else 80
                 guard.reject(host, port, secure)?.let { return@ToolSpec it }
-                listOf(RawTarget(content, host, port, secure))
+                // Inject the session profile (+ per-call override) into the seed so the audit starts authenticated.
+                val injected = SessionInjector.apply(content, sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), host)
+                listOf(RawTarget(injected, host, port, secure))
             } else {
                 emptyList()
             }
@@ -107,11 +116,15 @@ class ScanTools(
 
     private fun collaboratorPoll(): ToolSpec {
         val schema = SchemaBuilder.build {
-            string("secretKey", "The secretKey returned by a prior collaborator_generate call.", required = true)
+            string("secretKey", "OPTIONAL secretKey from a prior collaborator_generate. OMIT to poll ALL saved payloads (secret keys are auto-persisted, so this works even after context loss).")
+            string("interactionId", "Optional: only return the interaction with this id (e.g. the payload id you injected).")
             boolean("includeHttp", "Register HTTP interaction evidence for get_http_message.", default = false)
         }
-        return ToolSpec("collaborator_poll", "Poll Collaborator", "Poll Collaborator interactions (DNS/HTTP/SMTP) for a prior payload.", "Collaborator", schema, proOnly = true) { args ->
-            Results.structured(CollaboratorPollResult.serializer(), collaborator.poll(args.require("secretKey"), args.boolOr("includeHttp", false)))
+        return ToolSpec("collaborator_poll", "Poll Collaborator", "Poll Collaborator interactions (DNS/HTTP/SMTP). With no secretKey, polls every payload ever generated (keys are auto-saved).", "Collaborator", schema, proOnly = true) { args ->
+            Results.structured(
+                CollaboratorPollResult.serializer(),
+                collaborator.poll(args.str("secretKey"), args.boolOr("includeHttp", false), args.str("interactionId")),
+            )
         }
     }
 
@@ -120,26 +133,38 @@ class ScanTools(
             boolean("inScopeOnly", "Only scan in-scope responses.", default = true)
             integer("limit", "Max endpoints to return.", default = maxEndpoints, minimum = 1, maximum = maxEndpoints)
         }
-        return ToolSpec("extract_js_endpoints", "Extract JS endpoints", "Harvest URLs/paths from JS/HTML response bodies in proxy history + site map.", "Recon", schema) { args ->
+        return ToolSpec("extract_js_endpoints", "Extract JS endpoints", "Harvest URLs/paths from JS/HTML response bodies in proxy history + site map, with the source file/URL, message id and line number for each.", "Recon", schema) { args ->
             val inScopeOnly = args.boolOr("inScopeOnly", true)
             val limit = args.intOr("limit", maxEndpoints).coerceIn(1, maxEndpoints)
-            val found = LinkedHashSet<String>()
+            val found = LinkedHashMap<String, JsEndpoint>() // endpoint -> first source
             var scanned = 0
-            val responses = buildList {
-                dataSource.proxyHistory().forEach { if (!inScopeOnly || it.inScope) add(it.responseBytes) }
-                dataSource.siteMap().forEach { if (!inScopeOnly || it.inScope) add(it.responseBytes) }
+            // Source = (url, messageId, response-bytes provider) so each endpoint keeps its origin.
+            val sources = buildList {
+                dataSource.proxyHistory().forEach { if (!inScopeOnly || it.inScope) add(Triple(it.url, com.revoltsecurities.burpmcp.output.MessageRegistry.proxyHistoryId(it.index), it.responseBytes)) }
+                dataSource.siteMap().forEach { if (!inScopeOnly || it.inScope) add(Triple(it.url, com.revoltsecurities.burpmcp.output.MessageRegistry.siteMapId(it.url, it.index), it.responseBytes)) }
             }
-            for (provider in responses) {
+            for ((url, msgId, provider) in sources) {
                 if (scanned >= maxResponsesScanned || found.size >= limit) break
                 val bytes = runCatching { provider() }.getOrNull() ?: continue
                 scanned++
-                found += JsEndpoints.extract(String(bytes, Charsets.UTF_8))
+                JsEndpoints.extractWithLines(String(bytes, Charsets.UTF_8)).forEach { m ->
+                    found.putIfAbsent(m.endpoint, JsEndpoint(m.endpoint, url, m.line, msgId))
+                }
             }
-            val list = found.take(limit)
+            val list = found.values.take(limit)
             Results.structured(JsEndpointsResult.serializer(), JsEndpointsResult(list, list.size, scanned, found.size > limit))
         }
     }
 
     private fun splitList(s: String): List<String> =
         s.split(',', ' ', '\n', '\t', '\r').map { it.trim() }.filter { it.isNotEmpty() }
+
+    companion object {
+        private const val DESC_AUDIT =
+            "Start a Burp audit (active/passive), optionally seeded with a request; poll with scan_task_status. " +
+                "The stored session profile (session_set) + cookie/headers args are injected into the seed so the " +
+                "audit starts authenticated. IMPORTANT: Montoya cannot attach auth/macros to scanner-GENERATED " +
+                "requests — to keep those authed, set a session profile AND add, once in Burp, a Session handling " +
+                "rule whose action is \"Invoke a Burp extension\" → Revolt MCP (and/or a Burp login macro for token refresh)."
+    }
 }

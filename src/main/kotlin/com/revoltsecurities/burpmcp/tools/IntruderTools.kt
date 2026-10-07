@@ -1,5 +1,6 @@
 package com.revoltsecurities.burpmcp.tools
 
+import com.revoltsecurities.burpmcp.config.SessionProfile
 import com.revoltsecurities.burpmcp.output.MessageRegistry
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -17,6 +18,7 @@ data class IntruderResult(
     val anomaly: Boolean,
     val sample: List<IntruderHit>,
     val note: String,
+    val failed: Int = 0,
 )
 
 /**
@@ -29,6 +31,7 @@ class IntruderTools(
     private val registry: MessageRegistry,
     private val guard: ScopeGuard,
     private val wordlistsDir: () -> String = { "" },
+    private val sessionProfile: () -> SessionProfile = { SessionProfile() },
     private val maxRequests: Int = 2_000,
     private val sampleSize: Int = 25,
 ) {
@@ -56,6 +59,8 @@ class IntruderTools(
             string("host", Descriptions.TARGET_HOST, required = true)
             integer("port", Descriptions.TARGET_PORT)
             boolean("secure", Descriptions.TARGET_SECURE, default = true)
+            string("cookie", Descriptions.SESSION_COOKIE)
+            stringArray("headers", Descriptions.SESSION_HEADERS)
             integer("maxRequests", "Hard cap on generated requests.", default = 500, minimum = 1, maximum = maxRequests)
             string("httpMode", "Protocol mode.", enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
         }
@@ -80,7 +85,11 @@ class IntruderTools(
                 return@ToolSpec Results.error("No requests generated. Check that the template contains §…§ markers and payloads are non-empty.")
             }
 
-            val results = actions.sendParallel(generated.map { RawTarget(it.request, host, port, secure) }, args.strOr("httpMode", "auto"))
+            val profile = sessionProfile().mergedWith(SessionArgs.perCallOverride(args))
+            val results = actions.sendParallel(
+                generated.map { RawTarget(SessionInjector.apply(it.request, profile, host), host, port, secure) },
+                args.strOr("httpMode", "auto"),
+            )
             val groups = RaceAnalyzer.analyze(results).map { g ->
                 val ex = results.getOrNull(g.exampleIndex) ?: return@map g
                 val id = "intr:${counter.incrementAndGet()}"
@@ -94,13 +103,16 @@ class IntruderTools(
             val sizeByKey = hits.groupingBy { it.status to it.length }.eachCount()
             val sample = hits.sortedBy { sizeByKey[it.status to it.length] ?: 0 }.take(sampleSize)
             val anomaly = RaceAnalyzer.isAnomalous(groups)
+            val failed = results.count { it.error != null }
             Results.structured(
                 IntruderResult.serializer(),
                 IntruderResult(
                     sent = results.size, attackType = attackType, distinctOutcomes = groups, anomaly = anomaly,
                     sample = sample,
                     note = (if (anomaly) "Outcomes DIVERGED — inspect minority groups (likely findings). " else "All responses look uniform. ") +
-                        "Fetch a representative with get_http_message using a group's representativeId.",
+                        "Fetch a representative with get_http_message using a group's representativeId." +
+                        (if (failed > 0) " WARNING: $failed/${results.size} request(s) got NO response (status 0) — likely auth/host/TLS; add a session via session_set or the cookie/headers params." else ""),
+                    failed = failed,
                 ),
             )
         }

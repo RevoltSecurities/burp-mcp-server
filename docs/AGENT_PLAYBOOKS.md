@@ -11,13 +11,17 @@ A capability map for AI agents / automation — framed the way a human pentester
 
 ## 1. Recon & mapping (read-only — safe)
 *Human: "what's the attack surface here?"*
-- `get_site_map { host, pathPrefix, mimeType, search, inScopeOnly }` — enumerate discovered endpoints as typed
-  rows (paginated, keyset cursor).
-- `get_proxy_http_history { host, method, status, mimeType, search, since, until }` — everything seen through
-  the proxy, filtered.
-- `extract_js_endpoints { inScopeOnly }` — harvest URLs/paths from JS/HTML bodies (hidden endpoints).
-- `get_http_message { id, part, section, offset, length }` — read any request/response in byte-range slices.
-- `scope_check { url }` · `get_proxy_ws_history` · `burp_version`.
+- `get_site_map { host, pathPrefix, method, status, mimeType, search, minResponseLength, inScopeOnly }` —
+  enumerate discovered endpoints as typed rows (paginated, keyset cursor).
+- `get_proxy_http_history { host, method, status, mimeType, search, minResponseLength, maxResponseLength,
+  responseContains }` — everything seen through the proxy; `responseContains` searches response bytes, not
+  just the URL.
+- `extract_js_endpoints { inScopeOnly }` — harvest URLs/paths from JS/HTML bodies, each with its source URL,
+  message id and line number.
+- `get_http_message { id, part, section, offset, length }` — read any request/response in byte-range slices;
+  jump straight to an id (re-resolved live).
+- `scope_check { url }` · `get_proxy_ws_history { host, direction, contains, search, minLength, maxLength }` ·
+  `burp_version`.
 
 **Chain:** `get_site_map(host=target)` → for each interesting row `get_http_message(id, section=meta)` →
 pull bodies only where it matters.
@@ -35,8 +39,18 @@ pull bodies only where it matters.
 - `http_send { content, host, port, secure, httpMode }` — send a crafted raw request; returns a handle id,
   fetch the response with `get_http_message` (the agent's request/response workhorse).
 - `repeater_create_tab` / `intruder_send` — hand a request to Repeater/Intruder for a human to continue.
-- `cookie_jar_get` / `cookie_set` — inspect/seed session cookies.
+- `cookie_jar_get` / `cookie_set` — inspect/seed Burp's cookie jar.
 - `proxy_intercept { enabled }` — toggle intercept.
+
+**Authenticated testing (do this FIRST).** `session_set { cookies, headers, hostOverride }` stores an auth
+profile ONCE; it is auto-applied to every `http_send`/`http_send_analyze`/`http_send_compare`/`intruder_attack`/
+`race_*` request and the `scan_audit_start` seed, and persists across context compaction/restarts. Each send
+tool also takes per-call `cookie`/`headers` overrides. If a response comes back `status: 0` with an `error`, the
+request got no response (bad Host/port/TLS or missing auth) — set a session and retry. For scanner-generated
+traffic, also add a Burp session-handling rule → "Invoke a Burp extension" → Revolt MCP.
+
+**Jump to any message:** `get_http_message { id }` re-resolves `ph:`/`sm:`/`iss:`/`ws:` ids live — go straight to
+an id (even after context loss) without re-paginating; use `section=body` (or `full`) to read content.
 
 **Chain (authz/IDOR):** `get_proxy_http_history(host)` → `get_http_message(id, part=request, section=full)` →
 mutate an id/role → `http_send(...)` → `get_http_message(send_id)` → `diff_requests` the two responses.
@@ -53,9 +67,10 @@ mutate an id/role → `http_send(...)` → `get_http_message(send_id)` → `diff
 
 ## 5. Out-of-band / blind verification (Professional)
 *Human: "is this SSRF/blind injection real?"*
-- `collaborator_generate { customData }` — get a payload host + secret key.
-- inject the payload via `http_send`, then `collaborator_poll { secretKey, includeHttp }` — DNS/HTTP/SMTP hits
-  confirm OOB; HTTP evidence is fetchable via `get_http_message`.
+- `collaborator_generate { customData }` — get a payload host (its secret key is auto-saved).
+- inject the payload via `http_send`, then `collaborator_poll {}` (no args → polls ALL saved payloads, even
+  after context loss) or `collaborator_poll { interactionId }` — DNS/HTTP/SMTP hits confirm OOB; HTTP evidence
+  is fetchable via `get_http_message`.
 
 ## 6. Race conditions & high throughput
 *Human: "fire 20 of these at once to break the state machine."*

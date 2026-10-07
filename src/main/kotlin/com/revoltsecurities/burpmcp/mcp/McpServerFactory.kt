@@ -3,6 +3,7 @@ package com.revoltsecurities.burpmcp.mcp
 import com.revoltsecurities.burpmcp.config.BurpEnv
 import com.revoltsecurities.burpmcp.config.Defaults
 import com.revoltsecurities.burpmcp.config.McpSettings
+import com.revoltsecurities.burpmcp.config.SessionProfile
 import com.revoltsecurities.burpmcp.integrations.ExternalClients
 import com.revoltsecurities.burpmcp.integrations.IntegrationTools
 import com.revoltsecurities.burpmcp.integrations.WebhookSender
@@ -25,6 +26,7 @@ import com.revoltsecurities.burpmcp.tools.IntruderTools
 import com.revoltsecurities.burpmcp.tools.RaceTools
 import com.revoltsecurities.burpmcp.tools.ScanTools
 import com.revoltsecurities.burpmcp.tools.ScopeGuard
+import com.revoltsecurities.burpmcp.tools.SessionTools
 import com.revoltsecurities.burpmcp.tools.ReadTools
 import com.revoltsecurities.burpmcp.tools.Results
 import com.revoltsecurities.burpmcp.tools.SchemaBuilder
@@ -54,6 +56,7 @@ class McpServerFactory(
     private val metrics: Metrics,
     private val messageRegistry: MessageRegistry,
     private val settingsProvider: () -> McpSettings,
+    private val sessionProfileUpdater: (SessionProfile) -> Unit,
     private val statusProvider: () -> McpServerStatus,
     private val log: (String) -> Unit,
 ) {
@@ -89,12 +92,13 @@ class McpServerFactory(
     private fun buildSpecs(): List<ToolSpec> {
         val cfg = cfg()
         val guard = ScopeGuard({ settingsProvider().scopeOnly }, dataSource::isInScope)
+        val sessionProfile = { settingsProvider().sessionProfile }
         return buildList {
             add(statusTool())
             addAll(UtilityTools.build())
             addAll(AnalysisTools.build())
             addAll(ReadTools(dataSource, messageRegistry, cfg).build())
-            add(HttpMessageTool.build(messageRegistry, cfg))
+            add(HttpMessageTool.build(messageRegistry, cfg, dataSource))
             addAll(
                 ActionTools(
                     actions = actions,
@@ -102,23 +106,26 @@ class McpServerFactory(
                     scopeOnly = { settingsProvider().scopeOnly },
                     isInScope = dataSource::isInScope,
                     unsafeEnabled = { settingsProvider().unsafeToolsEnabled },
+                    sessionProfile = sessionProfile,
                 ).build(),
             )
-            addAll(ScanTools(scanner, collaborator, dataSource, guard).build())
+            addAll(ScanTools(scanner, collaborator, dataSource, guard, sessionProfile).build())
             addAll(
                 RaceTools(
                     actions = actions,
                     registry = messageRegistry,
                     scopeOnly = { settingsProvider().scopeOnly },
                     isInScope = dataSource::isInScope,
+                    sessionProfile = sessionProfile,
                 ).build(),
             )
             addAll(IntegrationTools(actions, webhook).build())
             addAll(EventTools.build(eventBuffer))
-            addAll(ConvenienceTools(actions, messageRegistry, guard).build())
-            addAll(IntruderTools(actions, messageRegistry, guard, { settingsProvider().wordlistsDir }).build())
+            addAll(ConvenienceTools(actions, messageRegistry, guard, sessionProfile).build())
+            addAll(IntruderTools(actions, messageRegistry, guard, { settingsProvider().wordlistsDir }, sessionProfile).build())
             addAll(ExtraActionTools(actions, guard).build())
             addAll(ControlTools(actions).build())
+            addAll(SessionTools(sessionProfile, sessionProfileUpdater, { settingsProvider().unsafeToolsEnabled }).build())
             addAll(federatedToolSpecs(externalClients))
         }
     }

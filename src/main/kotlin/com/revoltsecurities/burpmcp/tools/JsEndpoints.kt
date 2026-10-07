@@ -12,11 +12,41 @@ object JsEndpoints {
 
     private val JUNK = Regex("""^[/.]*$|\.(png|jpe?g|gif|svg|ico|css|woff2?|ttf|map)$""", RegexOption.IGNORE_CASE)
 
-    fun extract(body: String): Set<String> {
-        val out = LinkedHashSet<String>()
-        ABSOLUTE_URL.findAll(body).forEach { out += it.value.trimEnd('\\', '"', '\'', ')', ',', ';') }
-        QUOTED_PATH.findAll(body).forEach { out += it.groupValues[1] }
-        QUOTED_REL.findAll(body).forEach { out += it.groupValues[1] }
-        return out.filter { it.length in 2..512 && !JUNK.containsMatchIn(it) }.toCollection(LinkedHashSet())
+    /** One extracted endpoint with the 1-based line number it was found on. */
+    data class Match(val endpoint: String, val line: Int)
+
+    fun extract(body: String): Set<String> = extractWithLines(body).map { it.endpoint }.toCollection(LinkedHashSet())
+
+    /** Extract endpoints with source line numbers; de-duplicated keeping the first occurrence (earliest line). */
+    fun extractWithLines(body: String): List<Match> {
+        val lineStarts = lineStartOffsets(body)
+        val out = LinkedHashMap<String, Int>() // endpoint -> first line
+        fun record(value: String, offset: Int) {
+            if (value.length in 2..512 && !JUNK.containsMatchIn(value) && !out.containsKey(value)) {
+                out[value] = lineOf(offset, lineStarts)
+            }
+        }
+        ABSOLUTE_URL.findAll(body).forEach { record(it.value.trimEnd('\\', '"', '\'', ')', ',', ';'), it.range.first) }
+        QUOTED_PATH.findAll(body).forEach { record(it.groupValues[1], it.range.first) }
+        QUOTED_REL.findAll(body).forEach { record(it.groupValues[1], it.range.first) }
+        return out.map { Match(it.key, it.value) }
+    }
+
+    private fun lineStartOffsets(body: String): IntArray {
+        val starts = ArrayList<Int>()
+        starts.add(0)
+        var i = body.indexOf('\n')
+        while (i >= 0) { starts.add(i + 1); i = body.indexOf('\n', i + 1) }
+        return starts.toIntArray()
+    }
+
+    private fun lineOf(offset: Int, lineStarts: IntArray): Int {
+        // binary search: largest lineStart <= offset → that 0-based line, +1 for 1-based.
+        var lo = 0; var hi = lineStarts.size - 1; var ans = 0
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            if (lineStarts[mid] <= offset) { ans = mid; lo = mid + 1 } else hi = mid - 1
+        }
+        return ans + 1
     }
 }

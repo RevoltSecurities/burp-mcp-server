@@ -29,6 +29,7 @@ class App(private val api: MontoyaApi) {
     private var externalClients: SdkExternalClients? = null
     private var webhookSender: KtorWebhookSender? = null
     private var eventSource: MontoyaEventSource? = null
+    private var sessionHandling: MontoyaSessionHandling? = null
 
     fun initialize() {
         api.extension().setName(Defaults.EXTENSION_NAME)
@@ -48,9 +49,15 @@ class App(private val api: MontoyaApi) {
         val eventBuffer = EventBuffer()
         val metrics = Metrics()
         eventSource = MontoyaEventSource(api, eventBuffer).also { it.start() }
+        // Inject the stored session profile into scanner-generated traffic (requires a Burp session-handling rule).
+        sessionHandling = MontoyaSessionHandling(api) { settings.current.sessionProfile }.also { it.start() }
+        // Persist session-profile changes (session_set/clear) so they survive restarts and agent context loss.
+        val sessionProfileUpdater = { profile: com.revoltsecurities.burpmcp.config.SessionProfile ->
+            settings.save(settings.current.copy(sessionProfile = profile)); Unit
+        }
         supervisor = McpServerSupervisor(
             env, Defaults.VERSION, dataSource, actions, scanner, collaborator, external, webhook,
-            eventBuffer, metrics, messageRegistry, { settings.current },
+            eventBuffer, metrics, messageRegistry, { settings.current }, sessionProfileUpdater,
         ) { api.logging().logToOutput(it) }
 
         api.logging().logToOutput("${Defaults.EXTENSION_NAME} v${Defaults.VERSION} loading — ${env.describe()}")
@@ -68,6 +75,7 @@ class App(private val api: MontoyaApi) {
 
     fun shutdown() {
         if (::supervisor.isInitialized) supervisor.shutdown()
+        sessionHandling?.stop()
         eventSource?.stop()
         externalClients?.shutdown()
         webhookSender?.close()

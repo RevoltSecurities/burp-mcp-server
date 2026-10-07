@@ -31,11 +31,21 @@ object Descriptions {
         "Only include items in Burp's target scope. Defaults to true — set false to include everything."
 
     const val MESSAGE_ID =
-        "A stable row id from a list tool: \"ph:<n>\" (get_proxy_http_history), \"sm:<hash>\" (get_site_map), " +
-            "\"iss:<n>\" (get_scanner_issues), or \"send:<n>\"/\"race:<n>\"/\"collab:<n>\" from send/race/collaborator tools. " +
-            "Re-run the list tool if an id is stale."
+        "A stable row id from a list tool: \"ph:<n>\" (get_proxy_http_history), \"sm:<hash>:<n>\" (get_site_map), " +
+            "\"iss:<n>\" (get_scanner_issues), \"ws:<n>\" (get_proxy_ws_history), or \"send:<n>\"/\"race:<n>\"/" +
+            "\"collab:<n>\" from send/race/collaborator tools. Source ids (ph/sm/iss/ws) are re-resolved live, so you " +
+            "can jump straight to one without re-paginating; session ids (send/race/collab) expire — re-run that tool."
 
     const val TARGET_HOST = "Target hostname, e.g. \"example.com\" (no scheme, no path)."
     const val TARGET_PORT = "Target port. Defaults to 443 when secure, else 80."
     const val TARGET_SECURE = "Use TLS/HTTPS. Defaults to true."
+
+    const val SESSION_COOKIE =
+        "Optional Cookie header value to inject/merge for THIS request only, e.g. \"session=abc; csrf=xyz\". " +
+            "Merged over (and overriding) the stored session profile. To avoid repeating it on every call, set it " +
+            "once with session_set and omit here."
+    const val SESSION_HEADERS =
+        "Optional extra request headers to inject for THIS request only, each as a \"Name: value\" string " +
+            "(e.g. [\"Authorization: Bearer eyJ...\", \"X-Api-Key: k\"]). Added or replacing same-named headers, " +
+            "overriding the stored session profile. Prefer session_set for persistent auth."
 }

@@ -33,6 +33,8 @@ data class McpSettings(
     val externalMcpServers: List<ExternalMcpServerConfig> = emptyList(),
     /** Directory holding user payload wordlists that intruder_attack may reference by name. Empty = ~/.revolt-mcp/wordlists. */
     val wordlistsDir: String = "",
+    /** Reusable auth/session profile auto-applied to outbound requests (cookies/headers encrypted at rest). */
+    val sessionProfile: SessionProfile = SessionProfile(),
 ) {
     fun sanitized(): McpSettings = copy(
         port = port.coerceIn(1, 65_535),

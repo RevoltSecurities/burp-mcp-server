@@ -52,18 +52,48 @@ class ExtraActionTools(
 
     private fun bcheckImport(): ToolSpec {
         val schema = SchemaBuilder.build {
-            string("script", "The BCheck script source to import.", required = true)
+            string("script", BCHECK_SCRIPT, required = true)
             boolean("enabled", "Enable the BCheck after import.", default = true)
         }
-        return ToolSpec("bcheck_import", "Import BCheck", "Import a BCheck into Burp (runs within subsequent audits).", "Scanner", schema, mutating = true, proOnly = true) { args ->
-            Results.structured(ImportOutcome.serializer(), actions.importBCheck(args.require("script"), args.boolOr("enabled", true)))
+        return ToolSpec("bcheck_import", "Import BCheck", BCHECK_DESC, "Scanner", schema, mutating = true, proOnly = true) { args ->
+            val outcome = actions.importBCheck(args.require("script"), args.boolOr("enabled", true))
+            // Burp reports LOADED_WITH_ERRORS (not a failure status) for broken scripts — surface that as an error.
+            if (outcome.ok) Results.structured(ImportOutcome.serializer(), outcome)
+            else Results.structuredError(ImportOutcome.serializer(), outcome)
         }
     }
 
     private fun bambdaImport(): ToolSpec {
-        val schema = SchemaBuilder.build { string("script", "The Bambda script source to import.", required = true) }
+        val schema = SchemaBuilder.build { string("script", "The Bambda script source (a Java expression/snippet) to import.", required = true) }
         return ToolSpec("bambda_import", "Import Bambda", "Import a Bambda (custom filter/match-replace) into Burp's library.", "Config", schema, mutating = true) { args ->
-            Results.structured(ImportOutcome.serializer(), actions.importBambda(args.require("script")))
+            val outcome = actions.importBambda(args.require("script"))
+            if (outcome.ok) Results.structured(ImportOutcome.serializer(), outcome)
+            else Results.structuredError(ImportOutcome.serializer(), outcome)
         }
+    }
+
+    companion object {
+        private const val BCHECK_DESC =
+            "Import a BCheck (Burp's custom scan-check DSL) so it runs within subsequent audits. Returns ok=false " +
+                "with the parser messages in `errors` when the script has syntax/semantic problems (Burp loads it as " +
+                "LOADED_WITH_ERRORS rather than rejecting it, so always check ok/errors)."
+        private const val BCHECK_SCRIPT =
+            "The BCheck script source. BCheck is a small declarative DSL, NOT free text. Minimal shape:\n" +
+                "  metadata:\n" +
+                "    language: v2-beta\n" +
+                "    name: \"My check\"\n" +
+                "    description: \"...\"\n" +
+                "    author: \"...\"\n" +
+                "  given request then\n" +
+                "    send request called check:\n" +
+                "      replacing path: \"/probe\"\n" +
+                "    if {check.response.status_code} is \"200\" then\n" +
+                "      report issue:\n" +
+                "        severity: info\n" +
+                "        confidence: tentative\n" +
+                "        detail: \"found\"\n" +
+                "    end if\n" +
+                "Use `language: v2-beta` (v1-beta is outdated). Keys are indented YAML-like blocks. If import returns " +
+                "errors, fix the reported lines; see PortSwigger's BCheck reference for the full grammar."
     }
 }

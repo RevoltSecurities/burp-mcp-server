@@ -30,6 +30,10 @@ class SettingsStore private constructor(
                     externalMcpServers = stored.externalMcpServers.map {
                         it.copy(token = runCatching { cipher.decrypt(it.token) }.getOrDefault(it.token))
                     },
+                    sessionProfile = stored.sessionProfile.copy(
+                        cookies = stored.sessionProfile.cookies.mapValues { runCatching { cipher.decrypt(it.value) }.getOrDefault(it.value) },
+                        headers = stored.sessionProfile.headers.mapValues { runCatching { cipher.decrypt(it.value) }.getOrDefault(it.value) },
+                    ),
                 ).sanitized()
             }.getOrElse {
                 log("Failed to parse stored settings, using defaults: ${it.message}")
@@ -45,6 +49,10 @@ class SettingsStore private constructor(
         val toStore = clean.copy(
             token = cipher.encrypt(clean.token),
             externalMcpServers = clean.externalMcpServers.map { it.copy(token = cipher.encrypt(it.token)) },
+            sessionProfile = clean.sessionProfile.copy(
+                cookies = clean.sessionProfile.cookies.mapValues { cipher.encrypt(it.value) },
+                headers = clean.sessionProfile.headers.mapValues { cipher.encrypt(it.value) },
+            ),
         )
         prefs.setString(Defaults.PREF_SETTINGS, json.encodeToString(McpSettings.serializer(), toStore))
         return clean

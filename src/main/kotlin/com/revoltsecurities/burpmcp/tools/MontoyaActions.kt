@@ -9,6 +9,7 @@ import burp.api.montoya.http.message.responses.HttpResponse
 import burp.api.montoya.scanner.audit.issues.AuditIssue
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity
+import com.revoltsecurities.burpmcp.config.SessionProfile
 import java.time.ZonedDateTime
 
 /** Montoya-backed [BurpActions]. Isolated from tool logic; exercised live in Burp. */
@@ -16,14 +17,22 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
 
     override fun sendRequest(raw: String, host: String, port: Int, secure: Boolean, mode: String): SentExchange {
         val service = HttpService.httpService(host, port, secure)
-        val request = HttpRequest.httpRequest(service, raw)
-        val rr = api.http().sendRequest(request, httpMode(mode))
-        val resp = if (rr.hasResponse()) rr.response() else null
+        // Ensure a Host header is present (its absence is a common "no response / status 0" cause). Only adds
+        // when missing, so crafted smuggling/desync requests keep their own; session injection happens upstream.
+        val request = HttpRequest.httpRequest(service, SessionInjector.apply(raw, EMPTY_PROFILE, host))
+        val outcome = runCatching { api.http().sendRequest(request, httpMode(mode)) }
+        val rr = outcome.getOrNull()
+        val resp = if (rr != null && rr.hasResponse()) rr.response() else null
         return SentExchange(
             statusCode = resp?.statusCode()?.toInt(),
             mimeType = resp?.let { runCatching { it.headerValue("Content-Type") }.getOrNull() },
             requestBytes = request.toByteArray().getBytes(),
             responseBytes = resp?.toByteArray()?.getBytes(),
+            error = when {
+                outcome.isFailure -> "send failed: ${outcome.exceptionOrNull()?.message ?: outcome.exceptionOrNull()?.javaClass?.simpleName}"
+                resp == null -> "no response (connection reset / TLS / timeout / wrong port or Host)"
+                else -> null
+            },
         )
     }
 
@@ -92,8 +101,15 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
 
     override fun sendParallel(requests: List<RawTarget>, mode: String): List<SentExchange> {
         if (requests.isEmpty()) return emptyList()
-        val built = requests.map { HttpRequest.httpRequest(HttpService.httpService(it.host, it.port, it.secure), it.raw) }
-        val results = api.http().sendRequests(built, httpMode(mode))
+        val built = requests.map {
+            HttpRequest.httpRequest(HttpService.httpService(it.host, it.port, it.secure), SessionInjector.apply(it.raw, EMPTY_PROFILE, it.host))
+        }
+        val outcome = runCatching { api.http().sendRequests(built, httpMode(mode)) }
+        val results = outcome.getOrNull()
+        if (results == null) {
+            val reason = "batch send failed: ${outcome.exceptionOrNull()?.message ?: outcome.exceptionOrNull()?.javaClass?.simpleName}"
+            return built.map { SentExchange(null, null, runCatching { it.toByteArray().getBytes() }.getOrDefault(ByteArray(0)), null, reason) }
+        }
         return results.mapIndexed { i, rr ->
             val resp = if (rr.hasResponse()) rr.response() else null
             SentExchange(
@@ -101,6 +117,7 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
                 mimeType = resp?.let { runCatching { it.headerValue("Content-Type") }.getOrNull() },
                 requestBytes = runCatching { built[i].toByteArray().getBytes() }.getOrDefault(ByteArray(0)),
                 responseBytes = resp?.let { runCatching { it.toByteArray().getBytes() }.getOrNull() },
+                error = if (resp == null) "no response (connection reset / TLS / timeout / wrong port or Host)" else null,
             )
         }
     }
@@ -148,13 +165,23 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
 
     override fun importBCheck(script: String, enabled: Boolean): ImportOutcome {
         val r = api.scanner().bChecks().importBCheck(script, enabled)
-        return ImportOutcome(r.status().name, runCatching { r.importErrors() }.getOrDefault(emptyList()))
+        val status = r.status().name
+        val errors = runCatching { r.importErrors() }.getOrDefault(emptyList())
+        // Burp returns LOADED_WITH_ERRORS (not a FAILED status) for a broken script — treat that as not-ok.
+        return ImportOutcome(status, errors, ok = importOk(status, errors))
     }
 
     override fun importBambda(script: String): ImportOutcome {
         val r = api.bambda().importBambda(script)
-        return ImportOutcome(r.status().name, runCatching { r.importErrors() }.getOrDefault(emptyList()))
+        val status = r.status().name
+        val errors = runCatching { r.importErrors() }.getOrDefault(emptyList())
+        return ImportOutcome(status, errors, ok = importOk(status, errors))
     }
+
+    // "LOADED_WITHOUT_ERRORS" is ok; "LOADED_WITH_ERRORS" (or any non-empty error list) is not.
+    private fun importOk(status: String, errors: List<String>): Boolean =
+        errors.isEmpty() && !status.contains("WITH_ERROR", ignoreCase = true) &&
+            !status.contains("FAIL", ignoreCase = true) && !status.contains("UNSUPPORTED", ignoreCase = true)
 
     override fun exportProjectOptions(): String = api.burpSuite().exportProjectOptionsAsJson()
     override fun importProjectOptions(json: String) = api.burpSuite().importProjectOptionsFromJson(json)
@@ -196,4 +223,9 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
     private fun confidenceOf(c: String): AuditIssueConfidence = runCatching {
         AuditIssueConfidence.valueOf(c.uppercase())
     }.getOrDefault(AuditIssueConfidence.TENTATIVE)
+
+    private companion object {
+        // Empty profile → SessionInjector only fills a missing Host header (session injection runs at the tool layer).
+        val EMPTY_PROFILE = SessionProfile()
+    }
 }

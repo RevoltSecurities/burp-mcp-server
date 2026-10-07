@@ -67,10 +67,22 @@ private class FakeScanner : BurpScanner {
 }
 
 private class FakeCollaborator : BurpCollaborator {
-    override fun generate(customData: String?): CollaboratorPayloadInfo =
-        CollaboratorPayloadInfo("abc.oast.site", "iid", "sk-123", "note")
-    override fun poll(secretKey: String, includeHttp: Boolean): CollaboratorPollResult =
-        CollaboratorPollResult(secretKey, listOf(InteractionDTO("iid", "DNS", "t", "1.2.3.4", "cd", null)))
+    val saved = mutableListOf<String>()
+    var lastPollKey: String? = null
+    override fun generate(customData: String?): CollaboratorPayloadInfo {
+        saved += "sk-123"
+        return CollaboratorPayloadInfo("abc.oast.site", "iid", "sk-123", "note")
+    }
+    override fun poll(secretKey: String?, includeHttp: Boolean, interactionId: String?): CollaboratorPollResult {
+        lastPollKey = secretKey
+        // null key = poll all saved; mimic the real impl returning one interaction per saved client.
+        val count = if (secretKey != null) 1 else saved.size
+        return CollaboratorPollResult(
+            interactions = List(count) { InteractionDTO("iid", "DNS", "t", "1.2.3.4", "cd", null) },
+            clientsPolled = count,
+            note = "polled",
+        )
+    }
 }
 
 private class FakeSource(private val exchanges: List<HttpExchange>) : BurpDataSource {
@@ -149,9 +161,22 @@ class ScanToolsTest {
     }
 
     @Test
-    fun `extract_js_endpoints harvests from response bodies`() {
+    fun `collaborator poll works with no secretKey (polls all saved)`() {
+        call("collaborator_generate", emptyMap())
+        val p = call("collaborator_poll", emptyMap()) // no secretKey
+        val poll = Results.json.decodeFromJsonElement(CollaboratorPollResult.serializer(), p.structuredContent!!)
+        assertEquals(null, collab.lastPollKey) // polled all, not a specific key
+        assertTrue(poll.interactions.isNotEmpty())
+    }
+
+    @Test
+    fun `extract_js_endpoints harvests with source and line attribution`() {
         val res = call("extract_js_endpoints", mapOf("inScopeOnly" to false))
         val r = Results.json.decodeFromJsonElement(JsEndpointsResult.serializer(), res.structuredContent!!)
-        assertTrue(r.endpoints.contains("/api/secret"))
+        val hit = r.endpoints.firstOrNull { it.endpoint == "/api/secret" }
+        assertTrue(hit != null)
+        assertEquals("https://x.com/app.js", hit!!.source)
+        assertEquals("ph:0", hit.messageId)
+        assertEquals(1, hit.line)
     }
 }

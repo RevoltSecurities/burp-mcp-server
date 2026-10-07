@@ -2,12 +2,14 @@ package com.revoltsecurities.burpmcp.tools
 
 import kotlinx.serialization.Serializable
 
-/** Result of a programmatic send. */
+/** Result of a programmatic send. [error] is non-null when the request produced no response (connection/TLS/
+ *  protocol failure, timeout) — the reason a status/length comes back 0, instead of silently looking "identical". */
 data class SentExchange(
     val statusCode: Int?,
     val mimeType: String?,
     val requestBytes: ByteArray,
     val responseBytes: ByteArray?,
+    val error: String? = null,
 )
 
 @Serializable
@@ -20,7 +22,7 @@ data class OrganizerItemDTO(val id: Int, val status: String)
 data class WsSendResult(val connected: Boolean, val upgradeStatus: Int? = null, val messages: List<String> = emptyList(), val note: String)
 
 @Serializable
-data class ImportOutcome(val status: String, val errors: List<String> = emptyList())
+data class ImportOutcome(val status: String, val errors: List<String> = emptyList(), val ok: Boolean = true)
 
 @Serializable
 data class ProjectInfo(val name: String, val id: String)
@@ -67,8 +69,8 @@ interface BurpActions {
     fun organizerItems(): List<OrganizerItemDTO> = emptyList()
     fun wsSend(host: String, path: String, secure: Boolean, message: String, waitMs: Long): WsSendResult =
         WsSendResult(connected = false, note = "WebSocket send not supported by this implementation.")
-    fun importBCheck(script: String, enabled: Boolean): ImportOutcome = ImportOutcome("UNSUPPORTED")
-    fun importBambda(script: String): ImportOutcome = ImportOutcome("UNSUPPORTED")
+    fun importBCheck(script: String, enabled: Boolean): ImportOutcome = ImportOutcome("UNSUPPORTED", ok = false)
+    fun importBambda(script: String): ImportOutcome = ImportOutcome("UNSUPPORTED", ok = false)
     fun exportProjectOptions(): String = ""
     fun importProjectOptions(json: String) {}
     fun exportUserOptions(): String = ""

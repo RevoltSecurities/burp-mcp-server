@@ -3,6 +3,7 @@ package com.revoltsecurities.burpmcp.mcp
 import com.revoltsecurities.burpmcp.config.BurpEnv
 import com.revoltsecurities.burpmcp.config.Defaults
 import com.revoltsecurities.burpmcp.config.McpSettings
+import com.revoltsecurities.burpmcp.config.SessionProfile
 import com.revoltsecurities.burpmcp.config.TransportMode
 import com.revoltsecurities.burpmcp.output.MessageRegistry
 import com.revoltsecurities.burpmcp.events.EventBuffer
@@ -42,6 +43,7 @@ class McpServerSupervisor(
     private val metrics: Metrics,
     private val messageRegistry: MessageRegistry,
     private val settingsProvider: () -> McpSettings,
+    private val sessionProfileUpdater: (SessionProfile) -> Unit,
     private val log: (String) -> Unit,
 ) {
     /** Tool-call counters for the dashboard. */
@@ -174,6 +176,7 @@ class McpServerSupervisor(
         metrics = metrics,
         messageRegistry = messageRegistry,
         settingsProvider = settingsProvider,
+        sessionProfileUpdater = sessionProfileUpdater,
         statusProvider = { status },
         log = log,
     )

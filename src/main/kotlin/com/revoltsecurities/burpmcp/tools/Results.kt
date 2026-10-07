@@ -29,4 +29,10 @@ object Results {
         val obj = json.encodeToJsonElement(serializer, value) as? JsonObject
         return CallToolResult(listOf(TextContent(textForm)), null, obj)
     }
+
+    /** Structured content flagged as an error (isError=true) — keeps the typed payload while signalling failure. */
+    fun <T> structuredError(serializer: SerializationStrategy<T>, value: T): CallToolResult {
+        val base = structured(serializer, value)
+        return CallToolResult(base.content, true, base.structuredContent)
+    }
 }

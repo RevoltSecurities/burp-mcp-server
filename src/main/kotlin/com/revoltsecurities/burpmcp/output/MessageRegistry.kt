@@ -47,6 +47,9 @@ class MessageRegistry(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         /** Stable id for a scanner issue (index). */
         fun issueId(index: Int): String = "iss:$index"
 
+        /** Stable id for a proxy WebSocket message (index). */
+        fun wsId(index: Int): String = "ws:$index"
+
         private fun shortHash(value: String): String {
             val digest = java.security.MessageDigest.getInstance("SHA-1").digest(value.toByteArray(Charsets.UTF_8))
             return digest.joinToString("") { "%02x".format(it) }.take(16)

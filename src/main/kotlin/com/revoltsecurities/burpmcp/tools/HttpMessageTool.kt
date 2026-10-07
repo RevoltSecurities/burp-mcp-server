@@ -30,17 +30,19 @@ object HttpMessageTool {
 
     private val CRLF_CRLF = "\r\n\r\n".toByteArray(Charsets.ISO_8859_1)
 
-    fun build(registry: MessageRegistry, cfg: ToolConfig): ToolSpec {
+    fun build(registry: MessageRegistry, cfg: ToolConfig, dataSource: BurpDataSource? = null): ToolSpec {
         val schema = SchemaBuilder.build {
             string("id", Descriptions.MESSAGE_ID, required = true)
             string("part", "Which half of the exchange to read.", enum = listOf("request", "response"), default = "response")
             string(
                 "section",
-                "What to return: \"meta\" = sizes/mime only (start here, zero body); \"headers\" = header block; " +
-                    "\"body\" = the sliced body; \"full\" = headers + sliced body.",
+                "What to return: \"meta\" = sizes/mime only (zero body); \"headers\" = header block; " +
+                    "\"body\" = the sliced body; \"full\" = headers + sliced body. Use \"body\" or \"full\" to actually read content.",
                 enum = listOf("meta", "headers", "body", "full"),
                 default = "meta",
             )
+            string("host", "Optional host hint (e.g. the row's host). Not required and not used for access control; " +
+                "ids already carry their source. Provided for convenience/forward-compat.")
             integer("offset", "Byte offset into the body (for section=body/full). Use the truncation.nextAction offset to continue.", default = 0, minimum = 0)
             integer("length", "Max body bytes to return this call (server cap ${cfg.maxSliceBytes}).", default = cfg.defaultSliceBytes, minimum = 1, maximum = cfg.maxSliceBytes)
         }
@@ -48,13 +50,14 @@ object HttpMessageTool {
             id = "get_http_message",
             title = "Get HTTP message",
             description = "Fetch a request or response by its id (from a list tool) in bounded, resumable byte " +
-                "slices. Use section=meta first to see sizes, then section=body with offset/length to page the body.",
+                "slices — jump straight to an id without re-paginating. Source ids (ph:/sm:/iss:/ws:) are " +
+                "re-resolved live even if evicted/unseen; set section=body (or full) to read the body.",
             category = "Output",
             inputSchema = schema,
-        ) { args -> handle(args, registry, cfg) }
+        ) { args -> handle(args, registry, cfg, dataSource) }
     }
 
-    private fun handle(args: Args, registry: MessageRegistry, cfg: ToolConfig): io.modelcontextprotocol.kotlin.sdk.types.CallToolResult {
+    private fun handle(args: Args, registry: MessageRegistry, cfg: ToolConfig, dataSource: BurpDataSource?): io.modelcontextprotocol.kotlin.sdk.types.CallToolResult {
         val id = args.require("id")
         val part = args.strOr("part", "response").lowercase()
         val section = args.strOr("section", "meta").lowercase()
@@ -62,7 +65,8 @@ object HttpMessageTool {
         val length = args.intOr("length", cfg.defaultSliceBytes).coerceIn(1, cfg.maxSliceBytes)
 
         val handle = registry.get(id)
-            ?: return Results.error("Unknown id '$id'. Re-run the relevant list tool to refresh ids, then retry.")
+            ?: reResolve(id, dataSource, registry)
+            ?: return Results.error(unknownIdMessage(id, dataSource))
 
         val bytes = when (part) {
             "request" -> handle.requestBytes()
@@ -104,11 +108,61 @@ object HttpMessageTool {
         return Results.structured(HttpMessageResult.serializer(), result)
     }
 
-    /** Split raw HTTP bytes at the first CRLFCRLF into (headers, body). */
+    /**
+     * Re-resolve a source-derived id from the live data source when it's not in the registry (evicted by the
+     * LRU, or never listed this session). This is what lets an agent jump straight to an id — e.g. after a
+     * context compaction — instead of "Unknown id". Session-only ids (send:/race:/intr:/ana:/cmp:/collab:) are
+     * ephemeral and cannot be re-resolved.
+     */
+    private fun reResolve(id: String, dataSource: BurpDataSource?, registry: MessageRegistry): MessageRegistry.Handle? {
+        if (dataSource == null) return null
+        val handle = when {
+            id.startsWith("ph:") -> id.removePrefix("ph:").toIntOrNull()?.let { idx ->
+                dataSource.proxyHistory().firstOrNull { it.index == idx }?.let {
+                    MessageRegistry.Handle(id, it.mimeType, it.requestBytes, it.responseBytes)
+                }
+            }
+            id.startsWith("sm:") -> id.substringAfterLast(':').toIntOrNull()?.let { idx ->
+                dataSource.siteMap().firstOrNull { it.index == idx }?.let {
+                    MessageRegistry.Handle(id, it.mimeType, it.requestBytes, it.responseBytes)
+                }
+            }
+            id.startsWith("iss:") -> id.removePrefix("iss:").toIntOrNull()?.let { idx ->
+                dataSource.issues().firstOrNull { it.index == idx }?.let {
+                    MessageRegistry.Handle(id, null, it.firstEvidenceRequest ?: { null }, it.firstEvidenceResponse ?: { null })
+                }
+            }
+            id.startsWith("ws:") -> id.removePrefix("ws:").toIntOrNull()?.let { idx ->
+                dataSource.webSocketHistory().firstOrNull { it.index == idx }?.let {
+                    // WebSocket messages have one payload (no req/resp split): expose it under both parts.
+                    MessageRegistry.Handle(id, null, it.payloadBytes, it.payloadBytes)
+                }
+            }
+            else -> null
+        } ?: return null
+        registry.put(handle)
+        return handle
+    }
+
+    private fun unknownIdMessage(id: String, dataSource: BurpDataSource?): String {
+        val ephemeral = listOf("send:", "race:", "intr:", "ana:", "cmp:", "collab:").any { id.startsWith(it) }
+        return if (ephemeral) {
+            "Unknown id '$id'. Ids from send/race/intruder/collaborator tools are session-only and expire; re-run " +
+                "that tool to get a fresh id (its result carries the handle id)."
+        } else {
+            "Unknown id '$id'. Expected a list-tool id: ph:<n> (proxy history), sm:<hash>:<n> (site map), " +
+                "iss:<n> (scanner issues), or ws:<n> (websocket). Re-run the list tool to confirm the id."
+        }
+    }
+
+    /**
+     * Split raw HTTP bytes at the first CRLFCRLF into (headers, body). With no separator (e.g. a WebSocket
+     * payload, or a message with no blank line) the whole thing is the BODY, so section=body/full returns it.
+     */
     private fun splitHeaderBody(bytes: ByteArray): Pair<ByteArray, ByteArray> {
         val idx = indexOf(bytes, CRLF_CRLF)
         return if (idx < 0) {
-            bytes to ByteArray(0)
+            ByteArray(0) to bytes
         } else {
             bytes.copyOfRange(0, idx) to bytes.copyOfRange(idx + CRLF_CRLF.size, bytes.size)
         }

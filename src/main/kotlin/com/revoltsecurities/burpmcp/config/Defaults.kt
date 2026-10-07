@@ -3,7 +3,7 @@ package com.revoltsecurities.burpmcp.config
 /** Centralised default values and limits. Keep every magic number here. */
 object Defaults {
     const val EXTENSION_NAME = "Revolt MCP Server"
-    const val VERSION = "0.1.1"
+    const val VERSION = "0.2.0"
 
     // ---- Server ----
     const val HOST = "127.0.0.1"

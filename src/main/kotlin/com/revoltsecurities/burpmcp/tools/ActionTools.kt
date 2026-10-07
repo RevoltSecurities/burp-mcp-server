@@ -1,12 +1,13 @@
 package com.revoltsecurities.burpmcp.tools
 
+import com.revoltsecurities.burpmcp.config.SessionProfile
 import com.revoltsecurities.burpmcp.output.MessageRegistry
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import kotlinx.serialization.Serializable
 import java.util.concurrent.atomic.AtomicInteger
 
 @Serializable
-data class SendResult(val id: String, val status: Int?, val responseLength: Int, val mimeType: String? = null, val note: String)
+data class SendResult(val id: String, val status: Int?, val responseLength: Int, val mimeType: String? = null, val note: String, val error: String? = null)
 
 @Serializable
 data class CookieListResult(val cookies: List<CookieDTO>)
@@ -31,6 +32,7 @@ class ActionTools(
     private val scopeOnly: () -> Boolean,
     private val isInScope: (String) -> Boolean,
     private val unsafeEnabled: () -> Boolean = { false },
+    private val sessionProfile: () -> SessionProfile = { SessionProfile() },
 ) {
     private val sendCounter = AtomicInteger(0)
 
@@ -88,6 +90,8 @@ class ActionTools(
         val schema = SchemaBuilder.build {
             string("content", Descriptions.RAW_REQUEST, required = true)
             targetSchema(this)
+            string("cookie", Descriptions.SESSION_COOKIE)
+            stringArray("headers", Descriptions.SESSION_HEADERS)
             string("httpMode", "Protocol mode.", enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
         }
         return ToolSpec("http_send", "Send HTTP request", DESC_SEND, "Requests", schema, mutating = true) { args ->
@@ -95,14 +99,16 @@ class ActionTools(
             val secure = args.boolOr("secure", true)
             val port = resolvePort(args, secure)
             scopeReject(baseUrl(host, port, secure))?.let { return@ToolSpec it }
-            val sent = actions.sendRequest(args.require("content"), host, port, secure, args.strOr("httpMode", "auto"))
+            val content = SessionInjector.apply(args.require("content"), sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), host)
+            val sent = actions.sendRequest(content, host, port, secure, args.strOr("httpMode", "auto"))
             val id = "send:${sendCounter.incrementAndGet()}"
             registry.put(MessageRegistry.Handle(id, sent.mimeType, { sent.requestBytes }, { sent.responseBytes }))
             Results.structured(
                 SendResult.serializer(),
                 SendResult(
                     id = id, status = sent.statusCode, responseLength = sent.responseBytes?.size ?: 0, mimeType = sent.mimeType,
-                    note = "Fetch the response with get_http_message id=$id part=response section=body.",
+                    note = sent.error?.let { "Request failed: $it" } ?: "Fetch the response with get_http_message id=$id part=response section=body.",
+                    error = sent.error,
                 ),
             )
         }

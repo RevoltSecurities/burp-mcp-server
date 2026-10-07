@@ -2,6 +2,7 @@ package com.revoltsecurities.burpmcp.ui
 
 import com.revoltsecurities.burpmcp.config.BurpEnv
 import com.revoltsecurities.burpmcp.config.McpSettings
+import com.revoltsecurities.burpmcp.config.SessionProfile
 import com.revoltsecurities.burpmcp.config.SettingsStore
 import com.revoltsecurities.burpmcp.config.TransportMode
 import com.revoltsecurities.burpmcp.mcp.McpServerState
@@ -67,6 +68,11 @@ class MainTab(
     private val toolSearch = JTextField(18)
     private val toolListPanel = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
 
+    // session profile
+    private val sessionCookiesArea = JTextArea(5, 40).apply { lineWrap = false }
+    private val sessionHeadersArea = JTextArea(5, 40).apply { lineWrap = false }
+    private val sessionHostField = JTextField(24)
+
     // connect
     private val connectArea = JTextArea(12, 60).apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
 
@@ -74,6 +80,7 @@ class MainTab(
 
     init {
         loadFromSettings(store.current)
+        loadSessionFromSettings(store.current)
         rebuildToolRows()
         refreshConnect()
         supervisor.addListener { status -> SwingUtilities.invokeLater { renderStatus(status) } }
@@ -97,6 +104,7 @@ class MainTab(
         tabs.addTab("Dashboard", dashboardTab())
         tabs.addTab("Server", serverTab())
         tabs.addTab("Tools", toolsTab())
+        tabs.addTab("Session", sessionTab())
         tabs.addTab("Connect", connectTab())
         root.add(tabs, BorderLayout.CENTER)
 
@@ -230,6 +238,69 @@ class MainTab(
         supervisor.toolMetadata().forEach { next[it.id] = enabled }
         store.save(store.current.copy(toolToggles = next))
         rebuildToolRows()
+    }
+
+    // ---- Session ----
+
+    private fun sessionTab(): JPanel {
+        val p = JPanel(BorderLayout())
+        p.border = BorderFactory.createEmptyBorder(DesignTokens.S4, DesignTokens.S4, DesignTokens.S4, DesignTokens.S4)
+
+        val body = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
+        fun section(title: String, hint: String, field: Component) {
+            body.add(JLabel(title).apply { font = DesignTokens.baseFont.deriveFont(java.awt.Font.BOLD); alignmentX = Component.LEFT_ALIGNMENT })
+            body.add(JLabel(hint).apply { foreground = DesignTokens.textMuted; alignmentX = Component.LEFT_ALIGNMENT })
+            (field as? javax.swing.JComponent)?.alignmentX = Component.LEFT_ALIGNMENT
+            body.add(field)
+            body.add(Box.createVerticalStrut(DesignTokens.S3))
+        }
+        section("Cookies", "One per line as name=value — merged into every outbound request's Cookie header.", JScrollPane(sessionCookiesArea))
+        section("Headers", "One per line as Name: value — added/replacing headers on every send (e.g. Authorization: Bearer …).", JScrollPane(sessionHeadersArea))
+        section("Host override", "Optional — forces the Host header on every request (vhost routing). Leave blank to keep each request's Host.", JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(sessionHostField) })
+
+        p.add(body, BorderLayout.NORTH)
+        p.add(
+            JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                isOpaque = false
+                add(JButton("Save session").apply { addActionListener { saveSessionProfile() } })
+                add(Box.createHorizontalStrut(6))
+                add(JButton("Clear session").apply { addActionListener { clearSessionProfile() } })
+                add(Box.createHorizontalStrut(12))
+                add(JLabel("Auto-applied to send/intruder/race tools + audit seed, and (with a Burp session-handling rule) to scanner traffic. Agents can also use session_set.").apply { foreground = DesignTokens.textMuted })
+            },
+            BorderLayout.SOUTH,
+        )
+        return p
+    }
+
+    private fun parseSessionProfile(): SessionProfile {
+        val cookies = linkedMapOf<String, String>()
+        sessionCookiesArea.text.lines().forEach {
+            val l = it.trim()
+            if (l.isNotEmpty() && l.contains('=')) cookies[l.substringBefore('=').trim()] = l.substringAfter('=', "")
+        }
+        val headers = linkedMapOf<String, String>()
+        sessionHeadersArea.text.lines().forEach {
+            val i = it.indexOf(':')
+            if (i > 0) headers[it.substring(0, i).trim()] = it.substring(i + 1).trim()
+        }
+        return SessionProfile(cookies, headers, sessionHostField.text.trim().ifEmpty { null })
+    }
+
+    private fun saveSessionProfile() {
+        store.save(store.current.copy(sessionProfile = parseSessionProfile()))
+        loadSessionFromSettings(store.current)
+    }
+
+    private fun clearSessionProfile() {
+        store.save(store.current.copy(sessionProfile = SessionProfile()))
+        loadSessionFromSettings(store.current)
+    }
+
+    private fun loadSessionFromSettings(s: McpSettings) {
+        sessionCookiesArea.text = s.sessionProfile.cookies.entries.joinToString("\n") { "${it.key}=${it.value}" }
+        sessionHeadersArea.text = s.sessionProfile.headers.entries.joinToString("\n") { "${it.key}: ${it.value}" }
+        sessionHostField.text = s.sessionProfile.hostOverride ?: ""
     }
 
     // ---- Connect ----

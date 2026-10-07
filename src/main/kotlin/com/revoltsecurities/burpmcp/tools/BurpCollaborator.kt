@@ -21,12 +21,20 @@ data class InteractionDTO(
 )
 
 @Serializable
-data class CollaboratorPollResult(val secretKey: String, val interactions: List<InteractionDTO>)
+data class CollaboratorPollResult(
+    val interactions: List<InteractionDTO>,
+    val clientsPolled: Int = 1,
+    val note: String = "",
+)
 
 /** Burp Collaborator operations (Professional) for OOB/blind verification. */
 interface BurpCollaborator {
-    /** Generate a payload; the returned secretKey is used later to poll for interactions. */
+    /** Generate a payload; its secret key is auto-persisted so polls never need it supplied back. */
     fun generate(customData: String?): CollaboratorPayloadInfo
-    /** Poll interactions for a prior secretKey; if [includeHttp], register HTTP evidence for get_http_message. */
-    fun poll(secretKey: String, includeHttp: Boolean): CollaboratorPollResult
+    /**
+     * Poll interactions. [secretKey] null = poll ALL auto-remembered clients (survives context loss); otherwise
+     * just that one. [interactionId] optionally filters to a single interaction id. [includeHttp] registers HTTP
+     * evidence for get_http_message.
+     */
+    fun poll(secretKey: String?, includeHttp: Boolean, interactionId: String? = null): CollaboratorPollResult
 }
