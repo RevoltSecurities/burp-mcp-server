@@ -1,6 +1,14 @@
+# Revolt MCP Server v0.1.1 (beta)
+
+Adds **`project_info`** — a read-only tool returning the current Burp project's name and id — rounding out the
+project/control tool surface (alongside `project_options_*`, `user_options_*`, `task_engine_state`,
+`persistence_*`, and scope `include`/`exclude`/`check`). No other behavior changes.
+
+---
+
 # Revolt MCP Server v0.1.0 (beta)
 
-First public beta of **Revolt MCP Server for Burp Suite** — a Model Context Protocol (MCP) server, packaged
+First beta of **Revolt MCP Server for Burp Suite** — a Model Context Protocol (MCP) server, packaged
 as a Burp extension, that exposes Burp to AI agents and automation with context-managed, paginated output and
 safety gating.
 

@@ -22,6 +22,9 @@ data class WsSendResult(val connected: Boolean, val upgradeStatus: Int? = null, 
 @Serializable
 data class ImportOutcome(val status: String, val errors: List<String> = emptyList())
 
+@Serializable
+data class ProjectInfo(val name: String, val id: String)
+
 /** Describes an issue to register in Burp from the agent (e.g. ingesting an external finding). */
 data class NewIssue(
     val name: String,
@@ -75,4 +78,5 @@ interface BurpActions {
     fun persistenceGet(key: String): String? = null
     fun persistenceSet(key: String, value: String) {}
     fun persistenceKeys(): List<String> = emptyList()
+    fun projectInfo(): ProjectInfo = ProjectInfo("", "")
 }

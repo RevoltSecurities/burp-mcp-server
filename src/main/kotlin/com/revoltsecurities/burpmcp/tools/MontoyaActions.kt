@@ -177,6 +177,11 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
     override fun persistenceSet(key: String, value: String) { api.persistence().extensionData().setString(key, value) }
     override fun persistenceKeys(): List<String> = runCatching { api.persistence().extensionData().stringKeys().toList() }.getOrDefault(emptyList())
 
+    override fun projectInfo(): ProjectInfo = ProjectInfo(
+        name = runCatching { api.project().name() }.getOrDefault(""),
+        id = runCatching { api.project().id() }.getOrDefault(""),
+    )
+
     private fun httpMode(mode: String): HttpMode = when (mode.lowercase().replace("-", "_")) {
         "http1", "http_1" -> HttpMode.HTTP_1
         "http2", "http_2" -> HttpMode.HTTP_2

@@ -19,9 +19,14 @@ data class PersistenceKeys(val keys: List<String>)
 class ControlTools(private val actions: BurpActions) {
 
     fun build(): List<ToolSpec> = listOf(
-        projectOptionsGet(), projectOptionsSet(), userOptionsGet(), userOptionsSet(),
+        projectInfo(), projectOptionsGet(), projectOptionsSet(), userOptionsGet(), userOptionsSet(),
         taskEngineState(), persistenceGet(), persistenceSet(), persistenceKeys(),
     )
+
+    private fun projectInfo(): ToolSpec =
+        ToolSpec("project_info", "Project info", "Return the current Burp project's name and id.", "Config", SchemaBuilder.empty()) {
+            Results.structured(ProjectInfo.serializer(), actions.projectInfo())
+        }
 
     private fun projectOptionsGet(): ToolSpec =
         ToolSpec("project_options_get", "Get project options", "Export Burp PROJECT options as JSON. Sensitive: may contain credentials.", "Config", SchemaBuilder.empty(), mutating = true) {

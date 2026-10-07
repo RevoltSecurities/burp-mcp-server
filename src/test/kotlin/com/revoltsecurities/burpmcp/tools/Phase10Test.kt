@@ -96,6 +96,7 @@ private class P10Actions : BurpActions {
     override fun persistenceGet(key: String) = store[key]
     override fun persistenceSet(key: String, value: String) { store[key] = value }
     override fun persistenceKeys() = store.keys.toList()
+    override fun projectInfo() = ProjectInfo("myproj", "pid-1")
 }
 
 class Phase10ToolsTest {
@@ -183,6 +184,15 @@ class Phase10ToolsTest {
         val te = Results.json.decodeFromJsonElement(TaskEngineResult.serializer(),
             call("task_engine_state") { put("state", JsonPrimitive("paused")) }.structuredContent!!)
         assertEquals("PAUSED", te.state)
+    }
+
+    @Test
+    fun `project_info returns name and id (read-only)`() {
+        val res = call("project_info") {}
+        val r = Results.json.decodeFromJsonElement(ProjectInfo.serializer(), res.structuredContent!!)
+        assertEquals("myproj", r.name)
+        assertEquals("pid-1", r.id)
+        assertFalse(specs().getValue("project_info").mutating)
     }
 
     @Test
