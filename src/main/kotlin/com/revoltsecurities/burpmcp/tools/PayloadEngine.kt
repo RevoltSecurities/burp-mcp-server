@@ -43,7 +43,7 @@ object PayloadEngine {
         if (tpl.positionCount == 0 || sets.isEmpty() || sets.all { it.isEmpty() }) return emptyList()
         val out = when (attackType.lowercase()) {
             "pitchfork" -> pitchfork(tpl, sets)
-            "clusterbomb" -> clusterbomb(tpl, sets)
+            "clusterbomb" -> clusterbomb(tpl, sets, maxRequests)
             else -> sniper(tpl, sets.first())
         }
         return if (out.size > maxRequests) out.take(maxRequests) else out
@@ -77,13 +77,18 @@ object PayloadEngine {
         return result
     }
 
-    private fun clusterbomb(tpl: Template, sets: List<List<String>>): List<Generated> {
+    private fun clusterbomb(tpl: Template, sets: List<List<String>>, cap: Int): List<Generated> {
         val n = minOf(tpl.positionCount, sets.size)
         if (n == 0) return emptyList()
         var combos: List<List<String>> = listOf(emptyList())
         for (i in 0 until n) {
             val next = ArrayList<List<String>>()
-            for (prefix in combos) for (p in sets[i]) next.add(prefix + p)
+            outer@ for (prefix in combos) {
+                for (p in sets[i]) {
+                    next.add(prefix + p)
+                    if (next.size >= cap) break@outer // bound memory: never build more than the cap
+                }
+            }
             combos = next
         }
         return combos.map { chosen ->

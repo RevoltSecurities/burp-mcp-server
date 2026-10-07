@@ -82,6 +82,18 @@ class McpServerSupervisor(
             return
         }
 
+        // Refuse to expose the full tool surface unauthenticated on a non-loopback interface.
+        if (!isLoopbackHost(clean.host) && clean.token.isBlank()) {
+            update(
+                McpServerStatus(
+                    state = McpServerState.ERROR,
+                    transport = clean.transport.name,
+                    lastError = "Refusing to bind non-loopback host '${clean.host}' without a bearer token. Generate a token (Server tab) or bind 127.0.0.1.",
+                ),
+            )
+            return
+        }
+
         update(status.copy(state = McpServerState.STARTING, transport = clean.transport.name, lastError = null))
 
         runCatching {
@@ -95,10 +107,11 @@ class McpServerSupervisor(
                     authGate = authGate,
                     allowedOrigins = clean.allowedOrigins,
                     serverProvider = { sharedServer },
+                    requireLoopbackHost = clean.token.isBlank(),
                 )
             }
+            engine = newEngine // assign before start() so a start failure (e.g. port in use) is cleaned up
             newEngine.start(wait = false)
-            engine = newEngine
             update(
                 McpServerStatus(
                     state = McpServerState.RUNNING,
@@ -109,6 +122,8 @@ class McpServerSupervisor(
             )
             log("MCP server started: ${clean.transport} on $url")
         }.onFailure { e ->
+            runCatching { engine?.stop(0, 0) } // release Netty threads if start() failed after creation
+            engine = null
             update(
                 McpServerStatus(
                     state = McpServerState.ERROR,

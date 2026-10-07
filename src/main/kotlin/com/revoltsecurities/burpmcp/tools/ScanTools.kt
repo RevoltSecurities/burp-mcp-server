@@ -14,6 +14,7 @@ class ScanTools(
     private val scanner: BurpScanner,
     private val collaborator: BurpCollaborator,
     private val dataSource: BurpDataSource,
+    private val guard: ScopeGuard,
     private val maxEndpoints: Int = 300,
     private val maxResponsesScanned: Int = 300,
 ) {
@@ -36,6 +37,7 @@ class ScanTools(
         return ToolSpec("scan_crawl_start", "Start crawl", "Start a Burp crawl from seed URLs; poll progress with scan_task_status.", "Scanner", schema, mutating = true, proOnly = true) { args ->
             val seeds = splitList(args.require("seedUrls"))
             if (seeds.isEmpty()) return@ToolSpec Results.error("Provide at least one seed URL.")
+            seeds.forEach { seed -> guard.rejectUrl(seed)?.let { return@ToolSpec it } }
             Results.structured(ScanStartResult.serializer(), scanner.startCrawl(seeds))
         }
     }
@@ -53,7 +55,9 @@ class ScanTools(
             val requests = if (content != null) {
                 val host = args.str("host") ?: return@ToolSpec Results.error("host is required when content is provided.")
                 val secure = args.boolOr("secure", true)
-                listOf(RawTarget(content, host, args.int("port") ?: if (secure) 443 else 80, secure))
+                val port = args.int("port") ?: if (secure) 443 else 80
+                guard.reject(host, port, secure)?.let { return@ToolSpec it }
+                listOf(RawTarget(content, host, port, secure))
             } else {
                 emptyList()
             }

@@ -88,6 +88,7 @@ class McpServerFactory(
 
     private fun buildSpecs(): List<ToolSpec> {
         val cfg = cfg()
+        val guard = ScopeGuard({ settingsProvider().scopeOnly }, dataSource::isInScope)
         return buildList {
             add(statusTool())
             addAll(UtilityTools.build())
@@ -100,9 +101,10 @@ class McpServerFactory(
                     registry = messageRegistry,
                     scopeOnly = { settingsProvider().scopeOnly },
                     isInScope = dataSource::isInScope,
+                    unsafeEnabled = { settingsProvider().unsafeToolsEnabled },
                 ).build(),
             )
-            addAll(ScanTools(scanner, collaborator, dataSource).build())
+            addAll(ScanTools(scanner, collaborator, dataSource, guard).build())
             addAll(
                 RaceTools(
                     actions = actions,
@@ -113,7 +115,6 @@ class McpServerFactory(
             )
             addAll(IntegrationTools(actions, webhook).build())
             addAll(EventTools.build(eventBuffer))
-            val guard = ScopeGuard({ settingsProvider().scopeOnly }, dataSource::isInScope)
             addAll(ConvenienceTools(actions, messageRegistry, guard).build())
             addAll(IntruderTools(actions, messageRegistry, guard, { settingsProvider().wordlistsDir }).build())
             addAll(ExtraActionTools(actions, guard).build())

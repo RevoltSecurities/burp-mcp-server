@@ -47,12 +47,19 @@ object Codecs {
     fun decodeAs(base64: String, encoding: String): String {
         val raw = Base64.getDecoder().decode(base64)
         val bytes = when (encoding.lowercase()) {
-            "gzip" -> GZIPInputStream(ByteArrayInputStream(raw)).readBytes()
+            "gzip" -> capped(GZIPInputStream(ByteArrayInputStream(raw)).readBytes())
             "deflate" -> inflate(raw)
             "none", "" -> raw
             else -> throw IllegalArgumentException("Unsupported encoding '$encoding' (use gzip|deflate|none)")
         }
         return String(bytes, Charsets.UTF_8)
+    }
+
+    private const val MAX_DECOMPRESSED = 32 * 1024 * 1024 // 32 MB cap against decompression bombs
+
+    private fun capped(bytes: ByteArray): ByteArray {
+        require(bytes.size <= MAX_DECOMPRESSED) { "Decompressed output exceeds ${MAX_DECOMPRESSED / (1024 * 1024)} MB limit" }
+        return bytes
     }
 
     private fun inflate(data: ByteArray): ByteArray {
@@ -63,8 +70,11 @@ object Codecs {
         try {
             while (!inflater.finished()) {
                 val n = inflater.inflate(out)
-                if (n == 0 && inflater.needsInput()) break
+                // Stop on no-progress: either more input needed, or a preset dictionary is required
+                // (dictionary case would otherwise spin forever at 100% CPU).
+                if (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) break
                 sink.write(out, 0, n)
+                require(sink.size() <= MAX_DECOMPRESSED) { "Decompressed output exceeds ${MAX_DECOMPRESSED / (1024 * 1024)} MB limit" }
             }
         } finally {
             inflater.end()

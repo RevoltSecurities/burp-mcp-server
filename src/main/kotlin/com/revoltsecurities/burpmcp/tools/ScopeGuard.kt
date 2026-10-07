@@ -14,12 +14,13 @@ class ScopeGuard(private val scopeOnly: () -> Boolean, private val isInScope: (S
     fun resolvePort(explicit: Int?, secure: Boolean): Int = explicit ?: if (secure) 443 else 80
 
     /** @return an error result if the target is out of scope while confinement is on, else null. */
-    fun reject(host: String, port: Int, secure: Boolean): CallToolResult? {
-        val url = baseUrl(host, port, secure)
-        return if (scopeOnly() && !isInScope(url)) {
+    fun reject(host: String, port: Int, secure: Boolean): CallToolResult? = rejectUrl(baseUrl(host, port, secure))
+
+    /** @return an error result if [url] is out of scope while confinement is on, else null. */
+    fun rejectUrl(url: String): CallToolResult? =
+        if (scopeOnly() && !isInScope(url)) {
             Results.error("Blocked: $url is out of scope and scope-confinement is enabled.")
         } else {
             null
         }
-    }
 }

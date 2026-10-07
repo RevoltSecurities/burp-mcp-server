@@ -61,7 +61,7 @@ fun HttpExchange.toRow(): ProxyHistoryRow = ProxyHistoryRow(
 )
 
 fun SiteMapNode.toRow(): SiteMapRow = SiteMapRow(
-    id = MessageRegistry.siteMapId(url),
+    id = MessageRegistry.siteMapId(url, index),
     url = url,
     host = host,
     method = method,

@@ -24,7 +24,7 @@ class MontoyaEventSource(
     private val buffer: EventBuffer,
 ) : EventSource {
 
-    private val registrations = mutableListOf<Registration>()
+    private val registrations = java.util.concurrent.CopyOnWriteArrayList<Registration>()
 
     override fun start() {
         registrations += api.http().registerHttpHandler(object : HttpHandler {

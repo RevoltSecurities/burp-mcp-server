@@ -112,6 +112,77 @@ class CodecsTest {
         val decoded = Codecs.jwtDecode(jwt)
         assertTrue(decoded.contains("\"sub\":\"123\""))
     }
+
+    @Test
+    fun `deflate roundtrip`() {
+        val input = "hello deflate world ".repeat(5)
+        val d = java.util.zip.Deflater().apply { setInput(input.toByteArray()); finish() }
+        val buf = ByteArray(4096); val n = d.deflate(buf); d.end()
+        val b64 = java.util.Base64.getEncoder().encodeToString(buf.copyOf(n))
+        assertEquals(input, Codecs.decodeAs(b64, "deflate"))
+    }
+}
+
+/** Regression for the duplicate-URL site-map pagination/id bug (reviewer C1/H1). */
+class SiteMapDupKeyTest {
+
+    private fun node(i: Int, status: Int) = SiteMapNode(
+        index = i, url = "https://x.com/dup", host = "x.com", method = "GET", statusCode = status,
+        mimeType = "text/html", responseLength = 5, inScope = true,
+        requestBytes = { "GET /dup HTTP/1.1\r\nHost: x.com\r\n\r\n".toByteArray() },
+        responseBytes = { "HTTP/1.1 $status X\r\nContent-Type: text/html\r\n\r\nBODY$i-$status".toByteArray() },
+    )
+
+    private val source = object : BurpDataSource {
+        override fun proxyHistory() = emptyList<HttpExchange>()
+        override fun webSocketHistory() = emptyList<WebSocketRecord>()
+        override fun siteMap() = listOf(node(0, 200), node(1, 302), node(2, 500))
+        override fun issues() = emptyList<IssueRecord>()
+        override fun isInScope(url: String) = true
+        override fun burpVersion() = "x"; override fun burpEdition() = "PROFESSIONAL"; override fun isProfessional() = true
+    }
+
+    private val registry = com.revoltsecurities.burpmcp.output.MessageRegistry()
+    private val cfg = ToolConfig(50, 100, 96_000, 8_192, 65_536)
+    private val siteMapTool = ReadTools(source, registry, cfg).build().first { it.id == "get_site_map" }
+    private val getMsg = com.revoltsecurities.burpmcp.tools.HttpMessageTool.build(registry, cfg)
+
+    private fun page(cursor: String?) = kotlinx.coroutines.runBlocking {
+        val res = siteMapTool.handler(
+            Args(
+                buildJsonObject {
+                    put("inScopeOnly", JsonPrimitive(false)); put("limit", JsonPrimitive(2))
+                    if (cursor != null) put("cursor", JsonPrimitive(cursor))
+                },
+            ),
+        )
+        Results.json.decodeFromJsonElement(PageEnvelope.serializer(SiteMapRow.serializer()), res.structuredContent!!)
+    }
+
+    @Test
+    fun `duplicate URLs are not dropped across pages and ids are distinct`() {
+        val p1 = page(null)
+        assertEquals(2, p1.items.size)
+        assertTrue(p1.hasMore)
+        val p2 = page(p1.nextCursor)
+        assertEquals(1, p2.items.size)
+        val ids = (p1.items + p2.items).map { it.id }
+        assertEquals(3, ids.size)
+        assertEquals(3, ids.toSet().size) // all distinct — no id collision
+    }
+
+    @Test
+    fun `each row id resolves to its own response bytes`() {
+        val rows = page(null).items + page(page(null).nextCursor).items
+        val bodies = rows.map { row ->
+            kotlinx.coroutines.runBlocking {
+                val r = getMsg.handler(Args(buildJsonObject { put("id", JsonPrimitive(row.id)); put("part", JsonPrimitive("response")); put("section", JsonPrimitive("body")) }))
+                Results.json.decodeFromJsonElement(HttpMessageResult.serializer(), r.structuredContent!!).content
+            }
+        }
+        // three distinct responses, not the same one three times (the H1 collision bug)
+        assertEquals(3, bodies.toSet().size)
+    }
 }
 
 class ByteBudgetMeasureTest {

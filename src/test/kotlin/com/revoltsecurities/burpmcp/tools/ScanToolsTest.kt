@@ -94,7 +94,7 @@ class ScanToolsTest {
                 { ByteArray(0) }, { """var u="/api/secret";""".toByteArray() }),
         ),
     )
-    private val tools = ScanTools(scanner, collab, source).build().associateBy { it.id }
+    private val tools = ScanTools(scanner, collab, source, ScopeGuard({ false }, { true })).build().associateBy { it.id }
 
     private fun call(id: String, args: Map<String, Any?>) = runBlocking {
         tools.getValue(id).handler(

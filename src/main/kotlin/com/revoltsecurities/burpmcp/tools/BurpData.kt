@@ -23,6 +23,7 @@ data class HttpExchange(
 )
 
 data class SiteMapNode(
+    val index: Int,
     val url: String,
     val host: String,
     val method: String?,

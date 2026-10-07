@@ -2,6 +2,7 @@ package com.revoltsecurities.burpmcp.output
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -111,6 +112,17 @@ class BodySlicerTest {
     }
 
     @Test
+    fun `does not split multibyte UTF-8 at the window boundary`() {
+        val body = ("A" + "é".repeat(5)).toByteArray(Charsets.UTF_8) // A=1 byte, é=2 bytes → 11 bytes
+        val first = BodySlicer.slice(body, offset = 0, length = 2, mimeType = "text/plain", maxLength = 8, continuationHint = hint)
+        // window must snap back off the half-é → "A" only, no replacement char
+        assertFalse(first.content.contains('�'))
+        val next = BodySlicer.slice(body, offset = first.offset + first.length, length = 100, mimeType = "text/plain", maxLength = 100, continuationHint = hint)
+        assertFalse(next.content.contains('�'))
+        assertEquals("A" + "é".repeat(5), first.content + next.content)
+    }
+
+    @Test
     fun `content type classification`() {
         assertTrue(BodySlicer.isBinary("image/png"))
         assertTrue(BodySlicer.isBinary("application/octet-stream"))
@@ -160,8 +172,9 @@ class MessageRegistryTest {
     fun `id helpers are stable and formatted`() {
         assertEquals("ph:3", MessageRegistry.proxyHistoryId(3))
         assertEquals("iss:9", MessageRegistry.issueId(9))
-        assertEquals(MessageRegistry.siteMapId("https://x/y"), MessageRegistry.siteMapId("https://x/y"))
-        assertTrue(MessageRegistry.siteMapId("https://x/y").startsWith("sm:"))
+        assertEquals(MessageRegistry.siteMapId("https://x/y", 0), MessageRegistry.siteMapId("https://x/y", 0))
+        assertTrue(MessageRegistry.siteMapId("https://x/y", 3).startsWith("sm:"))
+        assertNotEquals(MessageRegistry.siteMapId("https://x/y", 0), MessageRegistry.siteMapId("https://x/y", 1))
     }
 
     private fun handle(id: String) = MessageRegistry.Handle(id, null, { null }, { null })

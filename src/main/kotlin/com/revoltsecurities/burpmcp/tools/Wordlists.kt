@@ -37,7 +37,7 @@ object Wordlists {
     /** Read a wordlist's entries: trimmed lines, skipping blanks and '#' comments, capped at [MAX_LINES]. */
     fun read(name: String, base: Path): List<String> {
         val path = resolve(name, base)
-        require(Files.isRegularFile(path)) { "Wordlist '$name' not found under ${base.toAbsolutePath()}" }
+        require(Files.isRegularFile(path)) { "Wordlist '$name' not found in the configured wordlists directory (see list_wordlists)" }
         return Files.newBufferedReader(path).useLines { seq ->
             seq.map { it.trim() }
                 .filter { it.isNotEmpty() && !it.startsWith("#") }

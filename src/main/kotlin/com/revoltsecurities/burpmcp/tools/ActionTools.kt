@@ -30,6 +30,7 @@ class ActionTools(
     private val registry: MessageRegistry,
     private val scopeOnly: () -> Boolean,
     private val isInScope: (String) -> Boolean,
+    private val unsafeEnabled: () -> Boolean = { false },
 ) {
     private val sendCounter = AtomicInteger(0)
 
@@ -172,11 +173,13 @@ class ActionTools(
             string("domain", "Filter by domain substring.")
             boolean("includeValues", "Include cookie values (otherwise redacted).", default = false)
         }
-        return ToolSpec("cookie_jar_get", "Get cookie jar", "List Burp's cookie jar entries (values redacted by default).", "Config", schema) { args ->
-            val domain = args.str("domain"); val includeValues = args.boolOr("includeValues", false)
+        return ToolSpec("cookie_jar_get", "Get cookie jar", "List Burp's cookie jar entries. Values are redacted unless includeValues=true AND unsafe tools are enabled.", "Config", schema) { args ->
+            val domain = args.str("domain")
+            // Cookie values are secrets (session tokens); only reveal them when includeValues AND unsafe mode are on.
+            val reveal = args.boolOr("includeValues", false) && unsafeEnabled()
             val cookies = actions.cookies()
                 .filter { domain.isNullOrEmpty() || it.domain.contains(domain, ignoreCase = true) }
-                .map { if (includeValues) it else it.copy(value = "[REDACTED]") }
+                .map { if (reveal) it else it.copy(value = "[REDACTED]") }
             Results.structured(CookieListResult.serializer(), CookieListResult(cookies))
         }
     }

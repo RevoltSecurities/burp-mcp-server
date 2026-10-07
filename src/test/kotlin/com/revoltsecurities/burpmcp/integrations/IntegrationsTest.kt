@@ -80,15 +80,19 @@ class WebhooksTest {
     }
 
     @Test
-    fun `ssrf guard blocks private and loopback`() {
+    fun `ssrf guard blocks private, loopback, and alternate notations`() {
+        // numeric hosts only (no external DNS needed in tests)
         assertTrue(Webhooks.isBlockedHost("127.0.0.1"))
         assertTrue(Webhooks.isBlockedHost("localhost"))
         assertTrue(Webhooks.isBlockedHost("10.0.0.5"))
         assertTrue(Webhooks.isBlockedHost("192.168.1.1"))
-        assertTrue(Webhooks.isBlockedHost("169.254.1.1"))
+        assertTrue(Webhooks.isBlockedHost("169.254.169.254")) // link-local (cloud metadata)
         assertTrue(Webhooks.isBlockedHost("172.16.0.1"))
-        assertFalse(Webhooks.isBlockedHost("hooks.slack.com"))
-        assertFalse(Webhooks.isBlockedHost("8.8.8.8"))
+        assertTrue(Webhooks.isBlockedHost("0.0.0.0")) // any-local
+        assertTrue(Webhooks.isBlockedHost("[::1]")) // ipv6 loopback with brackets
+        assertTrue(Webhooks.isBlockedHost("::1"))
+        assertTrue(Webhooks.isBlockedHost("2130706433")) // decimal for 127.0.0.1
+        assertFalse(Webhooks.isBlockedHost("8.8.8.8")) // public, numeric (no DNS)
     }
 }
 
@@ -151,7 +155,7 @@ class IntegrationToolsTest {
         assertEquals(null, webhook.lastUrl)
 
         val ok = call(tools.getValue("webhook_notify"), buildJsonObject {
-            put("url", JsonPrimitive("https://hooks.slack.com/services/XXX")); put("text", JsonPrimitive("hi"))
+            put("url", JsonPrimitive("https://8.8.8.8/services/XXX")); put("text", JsonPrimitive("hi")) // public numeric host, no DNS
         })
         val wr = Results.json.decodeFromJsonElement(WebhookResult.serializer(), ok.structuredContent!!)
         assertTrue(wr.ok)

@@ -24,8 +24,13 @@ class SettingsStore private constructor(
         } else {
             runCatching {
                 val stored = json.decodeFromString(McpSettings.serializer(), raw)
-                // token field in storage is ciphertext → decrypt back to plaintext in memory
-                stored.copy(token = cipher.decrypt(stored.token)).sanitized()
+                // token fields in storage are ciphertext → decrypt back to plaintext in memory
+                stored.copy(
+                    token = cipher.decrypt(stored.token),
+                    externalMcpServers = stored.externalMcpServers.map {
+                        it.copy(token = runCatching { cipher.decrypt(it.token) }.getOrDefault(it.token))
+                    },
+                ).sanitized()
             }.getOrElse {
                 log("Failed to parse stored settings, using defaults: ${it.message}")
                 McpSettings()
@@ -37,7 +42,10 @@ class SettingsStore private constructor(
     fun save(settings: McpSettings): McpSettings {
         val clean = settings.sanitized()
         current = clean
-        val toStore = clean.copy(token = cipher.encrypt(clean.token))
+        val toStore = clean.copy(
+            token = cipher.encrypt(clean.token),
+            externalMcpServers = clean.externalMcpServers.map { it.copy(token = cipher.encrypt(it.token)) },
+        )
         prefs.setString(Defaults.PREF_SETTINGS, json.encodeToString(McpSettings.serializer(), toStore))
         return clean
     }

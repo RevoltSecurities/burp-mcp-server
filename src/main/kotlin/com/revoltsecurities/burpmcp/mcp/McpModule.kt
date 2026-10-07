@@ -28,17 +28,33 @@ fun Application.installMcpModule(
     allowedOrigins: List<String>,
     serverProvider: () -> Server,
     streamablePath: String = Defaults.STREAMABLE_PATH,
+    requireLoopbackHost: Boolean = false,
 ) {
     @Suppress("DEPRECATION")
     intercept(ApplicationCallPipeline.Plugins) {
         val path = call.request.path()
         if (path == MCP_HEALTH_PATH) return@intercept
 
+        // Origin check (DNS-rebinding/CSRF): exact host match, not a prefix (so 127.0.0.1.evil.com is rejected).
         val origin = call.request.headers["Origin"]
-        if (origin != null && !isLoopbackOrigin(origin) && allowedOrigins.none { it == origin }) {
-            call.respondText("Origin not allowed", status = HttpStatusCode.Forbidden)
-            finish()
-            return@intercept
+        if (origin != null) {
+            val oh = originHost(origin)
+            if (oh == null || (!isLoopbackHost(oh) && allowedOrigins.none { it == origin })) {
+                call.respondText("Origin not allowed", status = HttpStatusCode.Forbidden)
+                finish()
+                return@intercept
+            }
+        }
+
+        // Host-header check: for the tokenless loopback server, reject non-loopback Host (rebinding defense)
+        // even when no Origin header is present.
+        if (requireLoopbackHost) {
+            val hostHeader = call.request.headers["Host"]
+            if (hostHeader != null && !isLoopbackHost(hostHeaderHost(hostHeader))) {
+                call.respondText("Host not allowed", status = HttpStatusCode.Forbidden)
+                finish()
+                return@intercept
+            }
         }
 
         val denial = authGate.evaluate(call.request.headers["Authorization"])
@@ -59,8 +75,17 @@ fun Application.installMcpModule(
     }
 }
 
-private fun isLoopbackOrigin(origin: String): Boolean =
-    origin.startsWith("http://127.0.0.1") ||
-        origin.startsWith("http://localhost") ||
-        origin.startsWith("https://127.0.0.1") ||
-        origin.startsWith("https://localhost")
+/** True for loopback hostnames/literals. */
+fun isLoopbackHost(host: String): Boolean {
+    val h = host.trim().removeSurrounding("[", "]").lowercase()
+    return h == "localhost" || h == "::1" || h == "0:0:0:0:0:0:0:1" || h.startsWith("127.")
+}
+
+private fun originHost(origin: String): String? =
+    runCatching { java.net.URI(origin).host?.removeSurrounding("[", "]") }.getOrNull()
+
+private fun hostHeaderHost(hostHeader: String): String {
+    val h = hostHeader.trim()
+    return if (h.startsWith("[")) h.substringAfter("[").substringBefore("]") // [::1]:port
+    else h.substringBefore(":")
+}

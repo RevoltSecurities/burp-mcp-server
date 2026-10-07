@@ -41,8 +41,8 @@ class MessageRegistry(private val maxEntries: Int = DEFAULT_MAX_ENTRIES) {
         /** Stable id for a proxy-history item (assignment index). */
         fun proxyHistoryId(index: Int): String = "ph:$index"
 
-        /** Stable id for a site-map entry (url hash). */
-        fun siteMapId(url: String): String = "sm:${shortHash(url)}"
+        /** Stable id for a site-map entry. Includes the entry index because many entries can share a URL. */
+        fun siteMapId(url: String, index: Int): String = "sm:${shortHash(url)}:$index"
 
         /** Stable id for a scanner issue (index). */
         fun issueId(index: Int): String = "iss:$index"

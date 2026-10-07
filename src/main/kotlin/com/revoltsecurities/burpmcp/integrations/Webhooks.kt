@@ -18,7 +18,7 @@ interface WebhookSender {
 }
 
 class KtorWebhookSender : WebhookSender {
-    private val client = HttpClient(CIO)
+    private val client = HttpClient(CIO) { followRedirects = false } // don't let a 302 jump to an internal host
     override suspend fun post(url: String, jsonBody: String): Int {
         val resp: HttpResponse = client.post(url) {
             contentType(ContentType.Application.Json)
@@ -44,19 +44,27 @@ object Webhooks {
         buildJsonObject { put("text", text) },
     )
 
-    /** Block private/loopback/link-local destinations to reduce SSRF via a user-supplied webhook URL. */
+    /**
+     * SSRF guard: RESOLVE the host and block if any resolved address is loopback/site-local/link-local/
+     * any-local/multicast (covers decimal/hex/octal IPv4 notations, IPv6 bracket/mapped forms, and DNS names
+     * that point at internal IPs). Fails CLOSED (blocks) if the host can't be resolved.
+     */
     fun isBlockedHost(host: String): Boolean {
-        val h = host.lowercase()
-        if (h == "localhost" || h.endsWith(".localhost")) return true
-        if (h == "::1" || h == "0:0:0:0:0:0:0:1") return true
-        val octets = h.split('.')
-        if (octets.size == 4 && octets.all { it.toIntOrNull() in 0..255 }) {
-            val a = octets[0].toInt(); val b = octets[1].toInt()
-            return a == 127 || a == 10 || a == 0 ||
-                (a == 192 && b == 168) ||
-                (a == 169 && b == 254) ||
-                (a == 172 && b in 16..31)
+        val h = host.trim().removeSurrounding("[", "]").lowercase()
+        if (h.isEmpty() || h == "localhost" || h.endsWith(".localhost")) return true
+        return try {
+            val addrs = java.net.InetAddress.getAllByName(h)
+            addrs.isEmpty() || addrs.any { a ->
+                a.isLoopbackAddress || a.isAnyLocalAddress || a.isLinkLocalAddress ||
+                    a.isSiteLocalAddress || a.isMulticastAddress || isUniqueLocalV6(a)
+            }
+        } catch (_: Exception) {
+            true // cannot resolve → do not send
         }
-        return h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80")
+    }
+
+    private fun isUniqueLocalV6(a: java.net.InetAddress): Boolean {
+        val b = a.address
+        return b.size == 16 && (b[0].toInt() and 0xFE) == 0xFC // fc00::/7
     }
 }

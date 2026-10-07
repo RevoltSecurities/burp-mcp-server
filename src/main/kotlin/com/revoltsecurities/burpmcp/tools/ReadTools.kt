@@ -97,7 +97,8 @@ class ReadTools(
                     (prefix.isNullOrEmpty() || pathOf(it.url).startsWith(prefix))
             }
             val page = Pager.page(
-                all = filtered, keyOf = { it.url }, ordering = "url",
+                // key must be UNIQUE: many site-map entries share a URL, so include the entry index.
+                all = filtered, keyOf = { "${it.url}\u0000${Pager.intKey(it.index)}" }, ordering = "url",
                 cursor = args.str("cursor"), filterHash = filterHash, limit = limitOf(args),
                 maxBytes = cfg.maxToolResultBytes,
                 toRow = { n -> registerNode(n); n.toRow() },
@@ -191,7 +192,7 @@ class ReadTools(
     )
 
     private fun registerNode(n: SiteMapNode) = registry.put(
-        MessageRegistry.Handle(MessageRegistry.siteMapId(n.url), n.mimeType, n.requestBytes, n.responseBytes),
+        MessageRegistry.Handle(MessageRegistry.siteMapId(n.url, n.index), n.mimeType, n.requestBytes, n.responseBytes),
     )
 
     private fun registerIssue(i: IssueRecord) = registry.put(

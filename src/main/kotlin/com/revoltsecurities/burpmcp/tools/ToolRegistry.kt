@@ -40,10 +40,17 @@ class ToolRegistry(
         return try {
             spec.handler(Args(arguments ?: JsonObject(emptyMap())))
         } catch (e: IllegalArgumentException) {
-            Results.error("Invalid arguments for '${spec.id}': ${e.message}")
+            Results.error("Invalid arguments for '${spec.id}': ${scrub(e.message)}")
         } catch (e: Exception) {
-            // Sanitised: never leak stack traces / paths to the client.
-            Results.error("Tool '${spec.id}' failed: ${e.message ?: e.javaClass.simpleName}")
+            // Sanitised: never leak stack traces / absolute paths to the client.
+            Results.error("Tool '${spec.id}' failed: ${scrub(e.message) ?: e.javaClass.simpleName}")
         }
+    }
+
+    /** Strip the user's home directory from outward-facing error text (keep full detail in logs only). */
+    private fun scrub(message: String?): String? {
+        if (message == null) return null
+        val home = runCatching { System.getProperty("user.home") }.getOrNull()
+        return if (!home.isNullOrEmpty()) message.replace(home, "~") else message
     }
 }

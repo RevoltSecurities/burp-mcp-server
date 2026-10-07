@@ -25,7 +25,7 @@ class MontoyaDataSource(private val api: MontoyaApi, private val env: BurpEnv) :
         api.proxy().webSocketHistory().mapIndexedNotNull { index, m -> runCatching { toWsRecord(index, m) }.getOrNull() }
 
     override fun siteMap(): List<SiteMapNode> =
-        api.siteMap().requestResponses().mapNotNull { rr -> runCatching { toNode(rr) }.getOrNull() }
+        api.siteMap().requestResponses().mapIndexedNotNull { index, rr -> runCatching { toNode(index, rr) }.getOrNull() }
 
     override fun issues(): List<IssueRecord> =
         api.siteMap().issues().mapIndexedNotNull { index, i -> runCatching { toIssue(index, i) }.getOrNull() }
@@ -59,10 +59,11 @@ class MontoyaDataSource(private val api: MontoyaApi, private val env: BurpEnv) :
         )
     }
 
-    private fun toNode(rr: HttpRequestResponse): SiteMapNode {
+    private fun toNode(index: Int, rr: HttpRequestResponse): SiteMapNode {
         val url = rr.url()
         val resp: HttpResponse? = if (rr.hasResponse()) rr.response() else null
         return SiteMapNode(
+            index = index,
             url = url,
             host = rr.httpService().host(),
             method = runCatching { rr.request().method() }.getOrNull(),

@@ -120,9 +120,13 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
         api.organizer().sendToOrganizer(req)
     }
 
-    override fun organizerItems(): List<OrganizerItemDTO> =
-        runCatching { api.organizer().items() }.getOrDefault(emptyList())
+    override fun organizerItems(): List<OrganizerItemDTO> {
+        // Organizer.items() is Burp 2026.7+ only; on older Burp return empty rather than hitting NoSuchMethodError.
+        val organizer = api.organizer()
+        if (organizer.javaClass.methods.none { it.name == "items" && it.parameterCount == 0 }) return emptyList()
+        return runCatching { organizer.items() }.getOrDefault(emptyList())
             .map { OrganizerItemDTO(runCatching { it.id() }.getOrDefault(-1), runCatching { it.status().name }.getOrDefault("")) }
+    }
 
     override fun wsSend(host: String, path: String, secure: Boolean, message: String, waitMs: Long): WsSendResult {
         val creation = api.websockets().createWebSocket(HttpService.httpService(host, if (secure) 443 else 80, secure), path)

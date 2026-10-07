@@ -59,7 +59,7 @@ object BodySlicer {
 
         val start = offset.coerceIn(0, total)
         val want = length.coerceIn(0, maxLength)
-        val end = (start + want).coerceAtMost(total)
+        val end = snapToCharBoundary(bytes, start, (start + want).coerceAtMost(total), total)
         val windowBytes = if (start >= end) ByteArray(0) else bytes.copyOfRange(start, end)
         val content = String(windowBytes, Charsets.UTF_8)
         val remaining = total - end
@@ -84,6 +84,24 @@ object BodySlicer {
             truncation = truncation,
         )
     }
+
+    /**
+     * Snap the window end to a UTF-8 character boundary so a multibyte char is never split across slices
+     * (which would decode to U+FFFD on both sides). If the whole body is consumed, no snapping is needed. If a
+     * single char is larger than the requested window, extend to include it so paging always makes progress.
+     */
+    private fun snapToCharBoundary(bytes: ByteArray, start: Int, desiredEnd: Int, total: Int): Int {
+        if (desiredEnd >= total) return desiredEnd // reaching the end: nothing to split
+        var e = desiredEnd
+        while (e > start && isContinuationByte(bytes[e])) e-- // back up to a boundary (lead byte / ASCII)
+        if (e > start) return e
+        // the first char alone exceeds the window — include the whole char to guarantee forward progress
+        var f = start + 1
+        while (f < total && isContinuationByte(bytes[f])) f++
+        return f
+    }
+
+    private fun isContinuationByte(b: Byte): Boolean = (b.toInt() and 0xC0) == 0x80
 
     /** Content types we never inline into text output. */
     fun isBinary(mimeType: String?): Boolean {
