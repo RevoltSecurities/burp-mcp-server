@@ -3,7 +3,9 @@ package com.revoltsecurities.burpmcp.mcp
 import com.revoltsecurities.burpmcp.config.BurpEnv
 import com.revoltsecurities.burpmcp.config.Defaults
 import com.revoltsecurities.burpmcp.config.McpSettings
+import com.revoltsecurities.burpmcp.config.SessionLogin
 import com.revoltsecurities.burpmcp.config.SessionProfile
+import com.revoltsecurities.burpmcp.tools.SessionRefreshService
 import com.revoltsecurities.burpmcp.integrations.ExternalClients
 import com.revoltsecurities.burpmcp.integrations.IntegrationTools
 import com.revoltsecurities.burpmcp.integrations.WebhookSender
@@ -57,6 +59,8 @@ class McpServerFactory(
     private val messageRegistry: MessageRegistry,
     private val settingsProvider: () -> McpSettings,
     private val sessionProfileUpdater: (SessionProfile) -> Unit,
+    private val sessionLoginUpdater: (SessionLogin) -> Unit,
+    private val refreshService: SessionRefreshService,
     private val statusProvider: () -> McpServerStatus,
     private val log: (String) -> Unit,
 ) {
@@ -125,7 +129,16 @@ class McpServerFactory(
             addAll(IntruderTools(actions, messageRegistry, guard, { settingsProvider().wordlistsDir }, sessionProfile).build())
             addAll(ExtraActionTools(actions, guard).build())
             addAll(ControlTools(actions).build())
-            addAll(SessionTools(sessionProfile, sessionProfileUpdater, { settingsProvider().unsafeToolsEnabled }).build())
+            addAll(
+                SessionTools(
+                    profileProvider = sessionProfile,
+                    updateProfile = sessionProfileUpdater,
+                    unsafeEnabled = { settingsProvider().unsafeToolsEnabled },
+                    loginProvider = { settingsProvider().sessionLogin },
+                    updateLogin = sessionLoginUpdater,
+                    refreshService = refreshService,
+                ).build(),
+            )
             addAll(federatedToolSpecs(externalClients))
         }
     }

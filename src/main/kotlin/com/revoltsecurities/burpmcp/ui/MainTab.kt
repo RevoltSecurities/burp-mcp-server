@@ -43,6 +43,7 @@ class MainTab(
     private val env: BurpEnv,
     private val store: SettingsStore,
     private val supervisor: McpServerSupervisor,
+    private val refreshService: com.revoltsecurities.burpmcp.tools.SessionRefreshService? = null,
 ) {
     private val headerBadge = StatusBadge("STOPPED")
 
@@ -69,9 +70,22 @@ class MainTab(
     private val toolListPanel = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
 
     // session profile
-    private val sessionCookiesArea = JTextArea(5, 40).apply { lineWrap = false }
-    private val sessionHeadersArea = JTextArea(5, 40).apply { lineWrap = false }
+    private val sessionCookiesArea = JTextArea(4, 40).apply { lineWrap = false }
+    private val sessionHeadersArea = JTextArea(4, 40).apply { lineWrap = false }
     private val sessionHostField = JTextField(24)
+
+    // session auto-login (token refresh)
+    private val loginEnabledBox = JCheckBox("Enable auto-refresh on 401/403")
+    private val loginRequestArea = JTextArea(5, 40).apply { lineWrap = false }
+    private val loginHostField = JTextField(20)
+    private val loginPortField = JTextField(6)
+    private val loginSecureBox = JCheckBox("TLS", true)
+    private val loginRegexField = JTextField(30)
+    private val loginLocationBox = JComboBox(arrayOf("header", "cookie"))
+    private val loginNameField = JTextField(16)
+    private val loginTemplateField = JTextField(16)
+    private val loginTriggersField = JTextField(10)
+    private val loginStatusLabel = JLabel(" ")
 
     // connect
     private val connectArea = JTextArea(12, 60).apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
@@ -247,6 +261,7 @@ class MainTab(
         p.border = BorderFactory.createEmptyBorder(DesignTokens.S4, DesignTokens.S4, DesignTokens.S4, DesignTokens.S4)
 
         val body = JPanel().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
+        fun heading(text: String) = body.add(JLabel(text).apply { font = DesignTokens.heading(); alignmentX = Component.LEFT_ALIGNMENT; border = BorderFactory.createEmptyBorder(DesignTokens.S3, 0, 2, 0) })
         fun section(title: String, hint: String, field: Component) {
             body.add(JLabel(title).apply { font = DesignTokens.baseFont.deriveFont(java.awt.Font.BOLD); alignmentX = Component.LEFT_ALIGNMENT })
             body.add(JLabel(hint).apply { foreground = DesignTokens.textMuted; alignmentX = Component.LEFT_ALIGNMENT })
@@ -254,22 +269,34 @@ class MainTab(
             body.add(field)
             body.add(Box.createVerticalStrut(DesignTokens.S3))
         }
+        fun row(vararg parts: Component) = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; alignmentX = Component.LEFT_ALIGNMENT; parts.forEach { add(it); add(Box.createHorizontalStrut(6)) } }
+
+        heading("Session profile")
         section("Cookies", "One per line as name=value — merged into every outbound request's Cookie header.", JScrollPane(sessionCookiesArea))
         section("Headers", "One per line as Name: value — added/replacing headers on every send (e.g. Authorization: Bearer …).", JScrollPane(sessionHeadersArea))
-        section("Host override", "Optional — forces the Host header on every request (vhost routing). Leave blank to keep each request's Host.", JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply { isOpaque = false; add(sessionHostField) })
+        section("Host override", "Optional — forces the Host header on every request (vhost routing). Leave blank to keep each request's Host.", row(sessionHostField))
+        body.add(row(
+            JButton("Save session").apply { addActionListener { saveSessionProfile() } },
+            JButton("Clear session").apply { addActionListener { clearSessionProfile() } },
+        ))
+        body.add(JLabel("Auto-applied to send/intruder/race tools, the audit seed, and in-scope scanner/crawler traffic (agents use session_set).").apply { foreground = DesignTokens.textMuted; alignmentX = Component.LEFT_ALIGNMENT })
 
-        p.add(body, BorderLayout.NORTH)
-        p.add(
-            JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-                isOpaque = false
-                add(JButton("Save session").apply { addActionListener { saveSessionProfile() } })
-                add(Box.createHorizontalStrut(6))
-                add(JButton("Clear session").apply { addActionListener { clearSessionProfile() } })
-                add(Box.createHorizontalStrut(12))
-                add(JLabel("Auto-applied to send/intruder/race tools, the audit seed, and in-scope scanner/crawler traffic. Agents can also use session_set. Token refresh (re-login on 401) needs a Burp login macro + session-handling rule.").apply { foreground = DesignTokens.textMuted })
-            },
-            BorderLayout.SOUTH,
-        )
+        heading("Session refresh (auto-login)")
+        body.add(JLabel("Replays a login + rotates a fresh token into the profile on 401/403 for in-scope scans. No Burp macro needed.").apply { foreground = DesignTokens.textMuted; alignmentX = Component.LEFT_ALIGNMENT })
+        body.add(loginEnabledBox.apply { alignmentX = Component.LEFT_ALIGNMENT })
+        section("Login request", "The raw HTTP login request to replay (with its own credentials).", JScrollPane(loginRequestArea))
+        section("Target", "Host / port / TLS the login request is sent to.", row(JLabel("host"), loginHostField, JLabel("port"), loginPortField, loginSecureBox))
+        section("Token extract (regex)", "Run over the login RESPONSE; capture group 1 is the token (else whole match).", row(loginRegexField))
+        section("Apply token", "Where the token goes on later requests, and how it's formatted ({token} is substituted).", row(JLabel("location"), loginLocationBox, JLabel("name"), loginNameField, JLabel("template"), loginTemplateField))
+        section("Trigger statuses", "Comma-separated statuses that auto-refresh (default 401,403).", row(loginTriggersField))
+        body.add(row(
+            JButton("Save login").apply { addActionListener { saveSessionLogin() } },
+            JButton("Clear login").apply { addActionListener { clearSessionLogin() } },
+            JButton("Test refresh now").apply { addActionListener { testRefreshNow() } },
+        ))
+        body.add(loginStatusLabel.apply { foreground = DesignTokens.textMuted; alignmentX = Component.LEFT_ALIGNMENT })
+
+        p.add(JScrollPane(body), BorderLayout.CENTER)
         return p
     }
 
@@ -301,6 +328,53 @@ class MainTab(
         sessionCookiesArea.text = s.sessionProfile.cookies.entries.joinToString("\n") { "${it.key}=${it.value}" }
         sessionHeadersArea.text = s.sessionProfile.headers.entries.joinToString("\n") { "${it.key}: ${it.value}" }
         sessionHostField.text = s.sessionProfile.hostOverride ?: ""
+        val l = s.sessionLogin
+        loginEnabledBox.isSelected = l.enabled
+        loginRequestArea.text = l.request
+        loginHostField.text = l.host
+        loginPortField.text = if (l.port > 0) l.port.toString() else ""
+        loginSecureBox.isSelected = l.secure
+        loginRegexField.text = l.extractRegex
+        loginLocationBox.selectedItem = l.location
+        loginNameField.text = l.name
+        loginTemplateField.text = l.template
+        loginTriggersField.text = l.triggerStatuses.joinToString(",")
+    }
+
+    private fun saveSessionLogin() {
+        val login = com.revoltsecurities.burpmcp.config.SessionLogin(
+            enabled = loginEnabledBox.isSelected,
+            request = loginRequestArea.text,
+            host = loginHostField.text.trim(),
+            port = loginPortField.text.trim().toIntOrNull() ?: 0,
+            secure = loginSecureBox.isSelected,
+            extractRegex = loginRegexField.text.trim(),
+            location = (loginLocationBox.selectedItem as? String) ?: "header",
+            name = loginNameField.text.trim().ifEmpty { "Authorization" },
+            template = loginTemplateField.text.trim().ifEmpty { "{token}" },
+            triggerStatuses = com.revoltsecurities.burpmcp.tools.SessionArgs.parseStatuses(loginTriggersField.text),
+        )
+        store.save(store.current.copy(sessionLogin = login))
+        loginStatusLabel.text = "Login saved."
+    }
+
+    private fun clearSessionLogin() {
+        store.save(store.current.copy(sessionLogin = com.revoltsecurities.burpmcp.config.SessionLogin()))
+        loadSessionFromSettings(store.current)
+        loginStatusLabel.text = "Login cleared."
+    }
+
+    private fun testRefreshNow() {
+        saveSessionLogin()
+        val svc = refreshService ?: run { loginStatusLabel.text = "Refresh service unavailable."; return }
+        loginStatusLabel.text = "Refreshing…"
+        Thread({
+            val outcome = runCatching { svc.refresh(force = true) }.getOrNull()
+            SwingUtilities.invokeLater {
+                loginStatusLabel.text = outcome?.let { "${it.status}: ${it.note}" } ?: "Refresh failed."
+                loadSessionFromSettings(store.current)
+            }
+        }, "revoltmcp-refresh").apply { isDaemon = true }.start()
     }
 
     // ---- Connect ----

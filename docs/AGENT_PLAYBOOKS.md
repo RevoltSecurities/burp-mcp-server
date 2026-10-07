@@ -48,7 +48,13 @@ profile ONCE; it is auto-applied to every `http_send`/`http_send_analyze`/`http_
 tool also takes per-call `cookie`/`headers` overrides. If a response comes back `status: 0` with an `error`, the
 request got no response (bad Host/port/TLS or missing auth) — set a session and retry. Authenticated **scans**
 need only `session_set` + an in-scope target: the profile is auto-injected into in-scope scanner/crawler traffic
-(never off-scope). Only token refresh (re-login on 401) needs a Burp login macro + session-handling rule in the UI.
+(never off-scope).
+
+**Token refresh (rotating sessions), native — no Burp macro.** `session_login_set { request, host, extractRegex,
+location, name, template, triggerStatuses }` registers a login request + a regex that pulls the token from the
+login response. In-scope scans then auto-refresh on 401/403 (replay login → extract token → rotate it into the
+session profile); `session_login_now` forces a refresh for the send/intruder/race tools when you see a 401. The
+token is never echoed and the login request is stored encrypted.
 
 **Jump to any message:** `get_http_message { id }` re-resolves `ph:`/`sm:`/`iss:`/`ws:` ids live — go straight to
 an id (even after context loss) without re-paginating; use `section=body` (or `full`) to read content.

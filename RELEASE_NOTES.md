@@ -1,3 +1,26 @@
+# Revolt MCP Server v0.3.0 (beta)
+
+Adds **native session auto-refresh** so a rotating/expiring token is maintained without any Burp macro.
+
+- **New tools:** `session_login_set` / `session_login_get` / `session_login_clear` / `session_login_now`.
+  Configure a login request + a regex that extracts the token from the login response, and where to put it
+  (`Authorization` header, a cookie, custom template). When an **in-scope scan** sees a trigger status
+  (default `401`/`403`), the extension replays the login, extracts a fresh token, and rotates it into the stored
+  session profile automatically — subsequent scanner requests re-authenticate on their own. `session_login_now`
+  forces a refresh on demand (use it when a send/intruder/race request returns 401/403).
+- **Safe by design:** refresh only triggers on in-scope scanner traffic; the login request is sent with its own
+  credentials (never the stale token); the login request is **encrypted at rest** and redacted by
+  `session_login_get`; the token itself is never returned (only its length). One refresh in flight at a time, with
+  a short debounce so a burst of 401s can't stampede logins.
+- **UI:** the **Session** tab gains a "Session refresh (auto-login)" section (request, extract regex, target,
+  token placement, trigger statuses) with **Save login** / **Test refresh now**.
+- Token refresh now needs **no Burp UI** for the common bearer/cookie case; only very complex multi-step logins
+  still benefit from a Burp login macro (documented).
+
+150 unit tests. No API changes to existing tools.
+
+---
+
 # Revolt MCP Server v0.2.1 (beta)
 
 Makes **authenticated scans work with no manual Burp setup**. The extension now registers a Burp HTTP handler

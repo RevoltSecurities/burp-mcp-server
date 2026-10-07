@@ -35,6 +35,8 @@ data class McpSettings(
     val wordlistsDir: String = "",
     /** Reusable auth/session profile auto-applied to outbound requests (cookies/headers encrypted at rest). */
     val sessionProfile: SessionProfile = SessionProfile(),
+    /** Optional auto-login config to refresh a rotating session token (request encrypted at rest). */
+    val sessionLogin: SessionLogin = SessionLogin(),
 ) {
     fun sanitized(): McpSettings = copy(
         port = port.coerceIn(1, 65_535),

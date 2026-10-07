@@ -34,6 +34,9 @@ class SettingsStore private constructor(
                         cookies = stored.sessionProfile.cookies.mapValues { runCatching { cipher.decrypt(it.value) }.getOrDefault(it.value) },
                         headers = stored.sessionProfile.headers.mapValues { runCatching { cipher.decrypt(it.value) }.getOrDefault(it.value) },
                     ),
+                    sessionLogin = stored.sessionLogin.copy(
+                        request = runCatching { cipher.decrypt(stored.sessionLogin.request) }.getOrDefault(stored.sessionLogin.request),
+                    ),
                 ).sanitized()
             }.getOrElse {
                 log("Failed to parse stored settings, using defaults: ${it.message}")
@@ -53,6 +56,7 @@ class SettingsStore private constructor(
                 cookies = clean.sessionProfile.cookies.mapValues { cipher.encrypt(it.value) },
                 headers = clean.sessionProfile.headers.mapValues { cipher.encrypt(it.value) },
             ),
+            sessionLogin = clean.sessionLogin.copy(request = cipher.encrypt(clean.sessionLogin.request)),
         )
         prefs.setString(Defaults.PREF_SETTINGS, json.encodeToString(McpSettings.serializer(), toStore))
         return clean

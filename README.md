@@ -63,11 +63,12 @@ without ever drowning in tokens, and with mutating actions gated behind an expli
 
 ## Features
 
-- **59+ MCP tools** spanning HTTP/Repeater, Scanner & Crawler (Pro), Collaborator (Pro), a programmatic
+- **63+ MCP tools** spanning HTTP/Repeater, Scanner & Crawler (Pro), Collaborator (Pro), a programmatic
   Intruder (sniper/pitchfork/clusterbomb with wordlist files), race conditions, proxy/site-map/issue
   browsing, cookies, scope, config/persistence, nuclei ingestion, webhooks, MCP federation and events.
 - **Authenticated testing** — a reusable session profile (cookies/headers/Host) set once and auto-applied to
-  every send/intruder/race request and scans; survives context compaction and restarts (encrypted at rest).
+  every send/intruder/race request and scans, plus **native token auto-refresh** (replay a login + rotate the
+  token on 401/403, no Burp macro); survives context compaction and restarts (encrypted at rest).
 - **Selectable transport** — Streamable-HTTP (default) or HTTP+SSE, chosen in the UI.
 - **Context-managed output** — keyset-cursor pagination, typed rows, byte-range body slicing with resumable
   markers, whole-response byte budget, binary omission.
@@ -254,14 +255,14 @@ Switch transport on the **Server** tab; the **Connect** tab regenerates the matc
 ## Tool catalog
 
 <details>
-<summary><b>59+ tools by domain (click to expand)</b></summary>
+<summary><b>63+ tools by domain (click to expand)</b></summary>
 
 - **Status/Config:** `status`, `burp_version`, `project_options_get/set`, `user_options_get/set`,
   `task_engine_state`, `persistence_get/set/keys`, `bambda_import`
 - **Utilities:** `url_encode/decode`, `base64_encode/decode`, `hash_compute`, `jwt_decode`, `decode_as`
 - **Requests & analysis:** `http_send`, `http_send_analyze`, `http_send_compare`, `request_parse`,
   `response_parse`, `params_extract`, `find_reflected`, `diff_requests`, `repeater_create_tab`, `intruder_send`
-- **Session / auth:** `session_set`, `session_get`, `session_clear` (reusable cookies/headers auto-applied to all send tools)
+- **Session / auth:** `session_set`, `session_get`, `session_clear` (reusable cookies/headers auto-applied to all send tools), `session_login_set`, `session_login_get`, `session_login_clear`, `session_login_now` (native token auto-refresh)
 - **History / Site map / Scope:** `get_proxy_http_history`, `get_proxy_ws_history`, `get_site_map`,
   `scope_check`, `scope_include`, `scope_exclude`, `sitemap_add`
 - **Output:** `get_http_message` (byte-range slices)
@@ -296,9 +297,23 @@ or edit it on the **Session** tab.
 **Authenticated scans** need only this profile plus a defined **target scope** — the extension registers a Burp
 HTTP handler that injects the profile into every **in-scope** request the scanner/crawler generates (and never
 sends it to out-of-scope hosts, so your token can't leak via an off-site redirect). No session-handling rule to
-configure. The only thing that still needs Burp's native machinery is **token refresh** (re-login on 401): wire a
-Burp login macro + session-handling rule in the UI — the extension also exposes a session-handling action
-("Invoke a Burp extension → Revolt MCP") you can pair with that macro.
+configure.
+
+**Token refresh (rotating sessions)** is native too — no Burp macro. With `session_login_set` you register a
+login request and a regex that extracts the token from the login response:
+
+```jsonc
+// session_login_set
+{ "request": "POST /login HTTP/1.1\r\nHost: t\r\n\r\nu=a&p=b", "host": "t",
+  "extractRegex": "\"access_token\":\"([^\"]+)\"", "location": "header",
+  "name": "Authorization", "template": "Bearer {token}" }
+```
+
+When an in-scope scan then hits a trigger status (default `401`/`403`) the extension replays the login, extracts a
+fresh token, and rotates it into the session profile automatically. `session_login_now` forces a refresh for the
+send/intruder/race tools. The login request is sent with its own credentials, stored encrypted, and the token is
+never echoed back. Only very complex multi-step logins still benefit from a Burp login macro (the extension also
+exposes a session-handling action to pair with one).
 
 If a send comes back with `status: 0` and an `error`, the request got no response (bad Host/port/TLS or missing
 auth) — add a session and retry; the tools say so explicitly rather than looking "identical".
@@ -352,7 +367,7 @@ Tests: `./gradlew check`.
 
 ## Status & roadmap
 
-Current: **v0.2.1 (beta).** 135 unit tests; passed a multi-pass security & correctness code review and a round
+Current: **v0.3.0 (beta).** 150 unit tests; passed a multi-pass security & correctness code review and a round
 of live-agent field testing. Planned: public 1.0, standalone stdio bridge, streamable-HTTP MCP federation.
 
 ## License

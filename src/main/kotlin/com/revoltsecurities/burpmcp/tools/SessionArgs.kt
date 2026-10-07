@@ -18,6 +18,12 @@ object SessionArgs {
         return SessionProfile(cookies = cookies, headers = headers, hostOverride = null)
     }
 
+    /** Parse comma/space-separated HTTP statuses (e.g. "401, 403"); empty → default [401,403]. Shared by tool + UI. */
+    fun parseStatuses(s: String?): List<Int> {
+        if (s.isNullOrBlank()) return listOf(401, 403)
+        return s.split(',', ' ').mapNotNull { it.trim().toIntOrNull() }.ifEmpty { listOf(401, 403) }
+    }
+
     /** `session_set`: `cookies` ["name=value"], `headers` ["Name: value"], optional `hostOverride`. */
     fun fromSetArgs(args: Args): SessionProfile = SessionProfile(
         cookies = parseKvPairs(args.strList("cookies")),

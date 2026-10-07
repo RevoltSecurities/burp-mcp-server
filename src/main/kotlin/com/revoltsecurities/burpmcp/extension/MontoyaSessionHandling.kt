@@ -14,7 +14,9 @@ import burp.api.montoya.http.sessions.SessionHandlingAction
 import burp.api.montoya.http.sessions.SessionHandlingActionData
 import com.revoltsecurities.burpmcp.config.SessionProfile
 import com.revoltsecurities.burpmcp.tools.SessionInjector
+import com.revoltsecurities.burpmcp.tools.SessionRefreshService
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Applies the stored [SessionProfile] (cookies/headers/Host) to Burp-native traffic so SCANNER/crawler runs are
@@ -31,8 +33,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 class MontoyaSessionHandling(
     private val api: MontoyaApi,
     private val profile: () -> SessionProfile,
+    private val refreshService: SessionRefreshService? = null,
 ) {
     private val registrations = CopyOnWriteArrayList<Registration>()
+    private val refreshPending = AtomicBoolean(false)
 
     fun start() {
         // 1. Automatic injection into in-scope scanner traffic.
@@ -53,8 +57,24 @@ class MontoyaSessionHandling(
                     }.getOrDefault(RequestToBeSentAction.continueWith(request))
                 }
 
-                override fun handleHttpResponseReceived(response: HttpResponseReceived): ResponseReceivedAction =
-                    ResponseReceivedAction.continueWith(response)
+                override fun handleHttpResponseReceived(response: HttpResponseReceived): ResponseReceivedAction {
+                    // Auto-refresh a rotating token: on an in-scope scanner response with a trigger status, replay
+                    // the login OFF this thread (debounced/single-flight) so subsequent scanner requests get the
+                    // fresh token. Never block Burp's response pipeline on the login round-trip or regex scan.
+                    val svc = refreshService
+                    if (svc != null && runCatching { response.toolSource().isFromTool(ToolType.SCANNER) }.getOrDefault(false)) {
+                        runCatching {
+                            val status = response.statusCode().toInt()
+                            if (svc.wantsRefresh(status) && api.scope().isInScope(response.initiatingRequest().url()) &&
+                                refreshPending.compareAndSet(false, true)
+                            ) {
+                                Thread({ try { svc.refresh(force = false) } finally { refreshPending.set(false) } }, "revoltmcp-refresh")
+                                    .apply { isDaemon = true }.start()
+                            }
+                        }
+                    }
+                    return ResponseReceivedAction.continueWith(response)
+                }
             })
         }.onFailure { api.logging().logToError("Scanner session HTTP handler registration failed: ${it.message}") }
 

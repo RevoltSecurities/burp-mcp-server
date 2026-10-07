@@ -49,20 +49,34 @@ class App(private val api: MontoyaApi) {
         val eventBuffer = EventBuffer()
         val metrics = Metrics()
         eventSource = MontoyaEventSource(api, eventBuffer).also { it.start() }
-        // Inject the stored session profile into scanner-generated traffic (requires a Burp session-handling rule).
-        sessionHandling = MontoyaSessionHandling(api) { settings.current.sessionProfile }.also { it.start() }
-        // Persist session-profile changes (session_set/clear) so they survive restarts and agent context loss.
+        // Persist session-profile / login changes so they survive restarts and agent context loss.
         val sessionProfileUpdater = { profile: com.revoltsecurities.burpmcp.config.SessionProfile ->
             settings.save(settings.current.copy(sessionProfile = profile)); Unit
         }
+        val sessionLoginUpdater = { login: com.revoltsecurities.burpmcp.config.SessionLogin ->
+            settings.save(settings.current.copy(sessionLogin = login)); Unit
+        }
+        // Native session auto-refresh: replay the login + rotate the token into the profile on 401/403.
+        // Scope-gated like every other send tool — the login host must be in scope when confinement is on.
+        val loginScopeGuard = com.revoltsecurities.burpmcp.tools.ScopeGuard({ settings.current.scopeOnly }, dataSource::isInScope)
+        val refreshService = com.revoltsecurities.burpmcp.tools.SessionRefreshService(
+            send = { raw, host, port, secure -> actions.sendRequest(raw, host, port, secure, "auto") },
+            loginProvider = { settings.current.sessionLogin },
+            currentProfile = { settings.current.sessionProfile },
+            updateProfile = sessionProfileUpdater,
+            scopeAllows = { host, port, secure -> loginScopeGuard.reject(host, port, secure) == null },
+        )
+        // Inject the stored session profile into in-scope scanner traffic + auto-refresh on trigger statuses.
+        sessionHandling = MontoyaSessionHandling(api, { settings.current.sessionProfile }, refreshService).also { it.start() }
         supervisor = McpServerSupervisor(
             env, Defaults.VERSION, dataSource, actions, scanner, collaborator, external, webhook,
             eventBuffer, metrics, messageRegistry, { settings.current }, sessionProfileUpdater,
+            sessionLoginUpdater, refreshService,
         ) { api.logging().logToOutput(it) }
 
         api.logging().logToOutput("${Defaults.EXTENSION_NAME} v${Defaults.VERSION} loading — ${env.describe()}")
 
-        val mainTab = MainTab(env, settings, supervisor)
+        val mainTab = MainTab(env, settings, supervisor, refreshService)
         api.userInterface().registerSuiteTab(Defaults.EXTENSION_NAME, mainTab.component)
 
         // Auto-start if the user previously enabled the server.
