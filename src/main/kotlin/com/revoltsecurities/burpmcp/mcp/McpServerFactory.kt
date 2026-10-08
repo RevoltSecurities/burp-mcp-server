@@ -126,7 +126,7 @@ class McpServerFactory(
                     sessionProfile = sessionProfile,
                 ).build(),
             )
-            addAll(IntegrationTools(actions, webhook).build())
+            addAll(IntegrationTools(actions, webhook, guard) { settingsProvider().nucleiDir }.build())
             addAll(EventTools.build(eventBuffer))
             addAll(ConvenienceTools(actions, messageRegistry, guard, sessionProfile).build())
             addAll(IntruderTools(actions, messageRegistry, guard, { settingsProvider().wordlistsDir }, sessionProfile).build())

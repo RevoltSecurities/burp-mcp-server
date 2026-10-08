@@ -291,6 +291,8 @@ class SendSessionInjectionTest {
         assertEquals("no response (timeout)", r.errorA)
         assertEquals("no response (timeout)", r.errorB)
         assertFalse(r.ok) // explicit failure flag so "status 0" can't be misread as success
+        assertEquals("no response", r.statusTextA) // human-readable status, never a bare 0
+        assertEquals("no response", r.statusTextB)
         assertTrue(res.isError == true) // surfaced as an MCP error
         assertTrue(r.note!!.contains("NO HTTP response", ignoreCase = true))
     }

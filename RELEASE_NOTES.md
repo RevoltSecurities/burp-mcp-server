@@ -1,3 +1,22 @@
+# Revolt MCP Server v0.4.1 (beta)
+
+Field-feedback follow-ups to v0.4.0.
+
+- **Nuclei from a file:** new **`ingest_nuclei_findings_from_output`** reads a nuclei JSONL **output file by path**
+  (no need to paste the JSONL inline). Both nuclei tools are now **scope-gated** (out-of-scope findings are
+  skipped when scope-confinement is on, and counted in `outOfScope`).
+- **Target host for nuclei:** both tools take optional **`host`** (+ `port`/`secure`). Because Burp scope is
+  host-specific, set it to the in-scope target and every imported issue is re-pointed at that host/site-map entry
+  (the matched path is preserved) — so findings land on the right target and pass scope.
+- **Send status is unambiguous:** `http_send` / `http_send_analyze` / `http_send_compare` now include an
+  always-present **`statusText`** ("200"/"401"… or **"no response"**) alongside `ok`. A request that gets nothing
+  back is `ok=false`, `statusText="no response"`, and an MCP error with the reason in `error` — it is clearly NOT
+  a "0" status code, so an agent can tell a real auth failure (401/403) from a dead connection.
+
+171 unit tests. No breaking changes.
+
+---
+
 # Revolt MCP Server v0.4.0 (beta)
 
 Fixes Bambda import and adds a full Bambda authoring/library toolset, plus clearer send-failure reporting.

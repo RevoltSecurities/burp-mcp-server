@@ -279,7 +279,7 @@ Switch transport on the **Server** tab; the **Connect** tab regenerates the matc
   `race_parallel_send`, `race_batch_send`
 - **Cookies / Proxy / WebSocket / Organizer:** `cookie_jar_get`, `cookie_set`, `proxy_intercept`,
   `ws_send`, `organizer_send`, `organizer_items`
-- **Integrations:** `ingest_nuclei_findings`, `webhook_notify`, federated `ext:<server>:<tool>`
+- **Integrations:** `ingest_nuclei_findings` (inline JSONL), `ingest_nuclei_findings_from_output` (JSONL file by path; both take a target `host` + are scope-gated), `webhook_notify`, federated `ext:<server>:<tool>`
 - **Events:** `events_poll`
 
 </details>
@@ -373,7 +373,7 @@ Tests: `./gradlew check`.
 
 ## Status & roadmap
 
-Current: **v0.4.0 (beta).** 169 unit tests; passed a multi-pass security & correctness code review and a round
+Current: **v0.4.1 (beta).** 171 unit tests; passed a multi-pass security & correctness code review and a round
 of live-agent field testing. Planned: public 1.0, standalone stdio bridge, streamable-HTTP MCP federation.
 
 ## License

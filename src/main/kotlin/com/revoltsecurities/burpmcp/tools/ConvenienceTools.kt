@@ -10,6 +10,7 @@ data class SendAnalyzeResult(
     val id: String,
     val ok: Boolean,
     val status: Int?,
+    val statusText: String,
     val mimeType: String? = null,
     val responseLength: Int,
     val reflected: List<ReflectedParam>,
@@ -25,6 +26,8 @@ data class SendCompareResult(
     val ok: Boolean,
     val statusA: Int?,
     val statusB: Int?,
+    val statusTextA: String,
+    val statusTextB: String,
     val lengthA: Int,
     val lengthB: Int,
     val diff: String,
@@ -73,7 +76,8 @@ class ConvenienceTools(
             val respText = ex.responseBytes?.toString(Charsets.UTF_8) ?: ""
             val id = register("ana", ex)
             val result = SendAnalyzeResult(
-                id = id, ok = ex.error == null, status = ex.statusCode, mimeType = ex.mimeType, responseLength = ex.responseBytes?.size ?: 0,
+                id = id, ok = ex.error == null, status = ex.statusCode, statusText = ex.statusCode?.toString() ?: "no response",
+                mimeType = ex.mimeType, responseLength = ex.responseBytes?.size ?: 0,
                 reflected = HttpParse.findReflected(content, respText),
                 response = HttpParse.parseResponse(respText, includeBody = false),
                 note = ex.error?.let { "No HTTP response received: $it (status is unavailable, not 0)." }
@@ -114,6 +118,7 @@ class ConvenienceTools(
             val result = SendCompareResult(
                 idA = register("cmp", exA), idB = register("cmp", exB), ok = ok,
                 statusA = exA.statusCode, statusB = exB.statusCode,
+                statusTextA = exA.statusCode?.toString() ?: "no response", statusTextB = exB.statusCode?.toString() ?: "no response",
                 lengthA = exA.responseBytes?.size ?: 0, lengthB = exB.responseBytes?.size ?: 0,
                 diff = HttpParse.diff(respA, respB),
                 reflectedA = HttpParse.findReflected(a, respA), reflectedB = HttpParse.findReflected(b, respB),
@@ -125,10 +130,12 @@ class ConvenienceTools(
 
     companion object {
         private const val DESC_ANALYZE =
-            "Send a raw HTTP request and get back, in ONE call: status, a parsed response, reflected-parameter " +
-                "analysis, and a handle id to fetch the full body with get_http_message. Repeater + analysis fused."
+            "Send a raw HTTP request and get back, in ONE call: status (+ statusText), a parsed response, " +
+                "reflected-parameter analysis, and a handle id to fetch the full body with get_http_message. " +
+                "ok=false / statusText=\"no response\" (an MCP error) means the server sent nothing back — not a 0 code."
         private const val DESC_COMPARE =
-            "Send two request variants to the same target and return their statuses/lengths, a line diff of the " +
-                "responses, and reflected params for each — one-call differential testing."
+            "Send two request variants to the same target and return their statuses/lengths (+ statusTextA/B), a line " +
+                "diff of the responses, and reflected params for each — one-call differential testing. ok=false / " +
+                "statusText \"no response\" means that side got no response (MCP error) — not a 0 status code."
     }
 }

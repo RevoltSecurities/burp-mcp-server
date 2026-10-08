@@ -130,7 +130,7 @@ class IntegrationToolsTest {
     @Test
     fun `ingest_nuclei_findings creates issues and skips duplicates`() {
         val actions = FakeActions()
-        val tools = IntegrationTools(actions, FakeWebhook(200)).build().associateBy { it.id }
+        val tools = IntegrationTools(actions, FakeWebhook(200), com.revoltsecurities.burpmcp.tools.ScopeGuard({ false }, { true })).build().associateBy { it.id }
         val jsonl = """
             {"template-id":"a","info":{"name":"A","severity":"low"},"host":"https://x.com"}
             {"template-id":"a","info":{"name":"A","severity":"low"},"host":"https://x.com"}
@@ -144,9 +144,53 @@ class IntegrationToolsTest {
     }
 
     @Test
+    fun `ingest re-targets findings to host and scope-gates`() {
+        val inScope = com.revoltsecurities.burpmcp.tools.ScopeGuard({ true }, { url -> url.contains("in.example.com") })
+        val jsonl = """{"template-id":"a","info":{"name":"A","severity":"low"},"host":"https://nuclei-host.com/p"}"""
+
+        // host override re-points the finding at an in-scope target → created there
+        val a1 = FakeActions()
+        val t1 = IntegrationTools(a1, FakeWebhook(200), inScope).build().associateBy { it.id }
+        val r1 = Results.json.decodeFromJsonElement(
+            IngestResult.serializer(),
+            call(t1.getValue("ingest_nuclei_findings"), buildJsonObject { put("jsonl", JsonPrimitive(jsonl)); put("host", JsonPrimitive("in.example.com")) }).structuredContent!!,
+        )
+        assertEquals(1, r1.created); assertEquals(0, r1.outOfScope)
+        assertEquals("in.example.com", a1.created.first().host)
+        assertTrue(a1.created.first().baseUrl.contains("in.example.com"))
+
+        // no override → the finding's own out-of-scope host is skipped
+        val a2 = FakeActions()
+        val t2 = IntegrationTools(a2, FakeWebhook(200), inScope).build().associateBy { it.id }
+        val r2 = Results.json.decodeFromJsonElement(
+            IngestResult.serializer(),
+            call(t2.getValue("ingest_nuclei_findings"), buildJsonObject { put("jsonl", JsonPrimitive(jsonl)) }).structuredContent!!,
+        )
+        assertEquals(0, r2.created); assertEquals(1, r2.outOfScope)
+    }
+
+    @Test
+    fun `ingest from output file reads a sandboxed filename and rejects traversal or missing files`() {
+        val actions = FakeActions()
+        val dir = java.nio.file.Files.createTempDirectory("nuclei-dir")
+        java.nio.file.Files.writeString(dir.resolve("findings.jsonl"), """{"template-id":"a","info":{"name":"A","severity":"high"},"host":"https://x.com"}""")
+        val tools = IntegrationTools(actions, FakeWebhook(200), com.revoltsecurities.burpmcp.tools.ScopeGuard({ false }, { true })) { dir.toString() }
+            .build().associateBy { it.id }
+        // bare filename under the configured dir → read + ingested
+        val r = Results.json.decodeFromJsonElement(
+            IngestResult.serializer(),
+            call(tools.getValue("ingest_nuclei_findings_from_output"), buildJsonObject { put("filename", JsonPrimitive("findings.jsonl")) }).structuredContent!!,
+        )
+        assertEquals(1, r.created)
+        // a traversal filename is neutralized to a filename in-dir (which doesn't exist) → error, never escapes
+        assertTrue(call(tools.getValue("ingest_nuclei_findings_from_output"), buildJsonObject { put("filename", JsonPrimitive("../../etc/passwd")) }).isError == true)
+        assertTrue(call(tools.getValue("ingest_nuclei_findings_from_output"), buildJsonObject { put("filename", JsonPrimitive("missing.jsonl")) }).isError == true)
+    }
+
+    @Test
     fun `webhook_notify blocks SSRF and posts to allowed hosts`() {
         val webhook = FakeWebhook(200)
-        val tools = IntegrationTools(FakeActions(), webhook).build().associateBy { it.id }
+        val tools = IntegrationTools(FakeActions(), webhook, com.revoltsecurities.burpmcp.tools.ScopeGuard({ false }, { true })).build().associateBy { it.id }
 
         val blocked = call(tools.getValue("webhook_notify"), buildJsonObject {
             put("url", JsonPrimitive("http://127.0.0.1/hook")); put("text", JsonPrimitive("hi"))
@@ -164,7 +208,7 @@ class IntegrationToolsTest {
 
     @Test
     fun `integration tools are mutating`() {
-        val tools = IntegrationTools(FakeActions(), FakeWebhook(200)).build().associateBy { it.id }
+        val tools = IntegrationTools(FakeActions(), FakeWebhook(200), com.revoltsecurities.burpmcp.tools.ScopeGuard({ false }, { true })).build().associateBy { it.id }
         assertTrue(tools.getValue("ingest_nuclei_findings").mutating)
         assertTrue(tools.getValue("webhook_notify").mutating)
     }

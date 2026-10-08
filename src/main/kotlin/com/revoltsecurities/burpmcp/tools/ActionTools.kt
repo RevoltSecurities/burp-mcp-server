@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 import java.util.concurrent.atomic.AtomicInteger
 
 @Serializable
-data class SendResult(val id: String, val ok: Boolean, val status: Int?, val responseLength: Int, val mimeType: String? = null, val note: String, val error: String? = null)
+data class SendResult(val id: String, val ok: Boolean, val status: Int?, val statusText: String, val responseLength: Int, val mimeType: String? = null, val note: String, val error: String? = null)
 
 @Serializable
 data class CookieListResult(val cookies: List<CookieDTO>)
@@ -104,8 +104,10 @@ class ActionTools(
             val id = "send:${sendCounter.incrementAndGet()}"
             registry.put(MessageRegistry.Handle(id, sent.mimeType, { sent.requestBytes }, { sent.responseBytes }))
             val result = SendResult(
-                id = id, ok = sent.error == null, status = sent.statusCode, responseLength = sent.responseBytes?.size ?: 0, mimeType = sent.mimeType,
-                note = sent.error?.let { "No HTTP response received: $it (status is unavailable, not 0)." }
+                id = id, ok = sent.error == null, status = sent.statusCode,
+                statusText = sent.statusCode?.toString() ?: "no response",
+                responseLength = sent.responseBytes?.size ?: 0, mimeType = sent.mimeType,
+                note = sent.error?.let { "No HTTP response received: $it — statusText=\"no response\" (the server sent nothing back; this is NOT a 0 status code)." }
                     ?: "Fetch the response with get_http_message id=$id part=response section=body.",
                 error = sent.error,
             )
@@ -239,7 +241,9 @@ class ActionTools(
     companion object {
         private const val DESC_SEND =
             "Send a raw HTTP request and get back the status + a handle id; fetch the response body via get_http_message. " +
-                "Respects scope confinement. This is the workhorse for agent request/response round-trips."
+                "Respects scope confinement. Result carries ok + statusText: when the server sends nothing back " +
+                "(connection reset/TLS/timeout/wrong host:port), ok=false, statusText=\"no response\" and the call is an " +
+                "MCP error with the reason in `error` — that is NOT a 0 status code. This is the workhorse for round-trips."
         private const val DESC_ISSUE =
             "Register a custom issue in Burp's site map (e.g. ingesting an external scanner finding). De-duplicates on name+baseUrl."
     }

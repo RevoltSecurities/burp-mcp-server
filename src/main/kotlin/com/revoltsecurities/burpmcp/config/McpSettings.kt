@@ -35,6 +35,8 @@ data class McpSettings(
     val wordlistsDir: String = "",
     /** Directory for the local .bambda script library. Empty = ~/.revolt-mcp/bambdas. */
     val bambdasDir: String = "",
+    /** Directory holding nuclei JSONL output files that ingest_nuclei_findings_from_output may read by name. Empty = ~/.revolt-mcp/nuclei. */
+    val nucleiDir: String = "",
     /** Reusable auth/session profile auto-applied to outbound requests (cookies/headers encrypted at rest). */
     val sessionProfile: SessionProfile = SessionProfile(),
     /** Optional auto-login config to refresh a rotating session token (request encrypted at rest). */
