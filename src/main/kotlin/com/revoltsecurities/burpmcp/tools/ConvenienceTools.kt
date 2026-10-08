@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @Serializable
 data class SendAnalyzeResult(
     val id: String,
+    val ok: Boolean,
     val status: Int?,
     val mimeType: String? = null,
     val responseLength: Int,
@@ -21,6 +22,7 @@ data class SendAnalyzeResult(
 data class SendCompareResult(
     val idA: String,
     val idB: String,
+    val ok: Boolean,
     val statusA: Int?,
     val statusB: Int?,
     val lengthA: Int,
@@ -70,16 +72,15 @@ class ConvenienceTools(
             val ex = actions.sendRequest(content, host, port, secure, args.strOr("httpMode", "auto"))
             val respText = ex.responseBytes?.toString(Charsets.UTF_8) ?: ""
             val id = register("ana", ex)
-            Results.structured(
-                SendAnalyzeResult.serializer(),
-                SendAnalyzeResult(
-                    id = id, status = ex.statusCode, mimeType = ex.mimeType, responseLength = ex.responseBytes?.size ?: 0,
-                    reflected = HttpParse.findReflected(content, respText),
-                    response = HttpParse.parseResponse(respText, includeBody = false),
-                    note = ex.error?.let { "Request failed: $it" } ?: "Full response: get_http_message id=$id part=response section=body.",
-                    error = ex.error,
-                ),
+            val result = SendAnalyzeResult(
+                id = id, ok = ex.error == null, status = ex.statusCode, mimeType = ex.mimeType, responseLength = ex.responseBytes?.size ?: 0,
+                reflected = HttpParse.findReflected(content, respText),
+                response = HttpParse.parseResponse(respText, includeBody = false),
+                note = ex.error?.let { "No HTTP response received: $it (status is unavailable, not 0)." }
+                    ?: "Full response: get_http_message id=$id part=response section=body.",
+                error = ex.error,
             )
+            if (result.ok) Results.structured(SendAnalyzeResult.serializer(), result) else Results.structuredError(SendAnalyzeResult.serializer(), result)
         }
     }
 
@@ -103,24 +104,22 @@ class ConvenienceTools(
             val exB = actions.sendRequest(b, host, port, secure, mode)
             val respA = exA.responseBytes?.toString(Charsets.UTF_8) ?: ""
             val respB = exB.responseBytes?.toString(Charsets.UTF_8) ?: ""
+            val ok = exA.error == null && exB.error == null
             val note = when {
-                exA.error != null || exB.error != null ->
-                    "One or both requests got no response (statuses/lengths are 0 for those). See errorA/errorB — add auth with session_set/cookie/headers, or check host/port/Host."
+                !ok -> "One or both requests got NO HTTP response (their status/length are unavailable, shown as 0). See errorA/errorB — add auth with session_set/cookie/headers, or check host/port/Host."
                 exA.statusCode == exB.statusCode && respA == respB ->
                     "Responses are identical (same status, same bytes)."
                 else -> "Responses differ — inspect diff, statuses and lengths."
             }
-            Results.structured(
-                SendCompareResult.serializer(),
-                SendCompareResult(
-                    idA = register("cmp", exA), idB = register("cmp", exB),
-                    statusA = exA.statusCode, statusB = exB.statusCode,
-                    lengthA = exA.responseBytes?.size ?: 0, lengthB = exB.responseBytes?.size ?: 0,
-                    diff = HttpParse.diff(respA, respB),
-                    reflectedA = HttpParse.findReflected(a, respA), reflectedB = HttpParse.findReflected(b, respB),
-                    errorA = exA.error, errorB = exB.error, note = note,
-                ),
+            val result = SendCompareResult(
+                idA = register("cmp", exA), idB = register("cmp", exB), ok = ok,
+                statusA = exA.statusCode, statusB = exB.statusCode,
+                lengthA = exA.responseBytes?.size ?: 0, lengthB = exB.responseBytes?.size ?: 0,
+                diff = HttpParse.diff(respA, respB),
+                reflectedA = HttpParse.findReflected(a, respA), reflectedB = HttpParse.findReflected(b, respB),
+                errorA = exA.error, errorB = exB.error, note = note,
             )
+            if (ok) Results.structured(SendCompareResult.serializer(), result) else Results.structuredError(SendCompareResult.serializer(), result)
         }
     }
 

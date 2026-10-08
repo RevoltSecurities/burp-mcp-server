@@ -1,3 +1,34 @@
+# Revolt MCP Server v0.4.0 (beta)
+
+Fixes Bambda import and adds a full Bambda authoring/library toolset, plus clearer send-failure reporting.
+
+## Bambda tooling (new)
+
+Burp's `importBambda` takes a whole **document** (an `id/name/function/location` header + a `source:` Java body),
+not a bare snippet — which is why imports failed with "function/location required". Now:
+
+- **`bambda_import`** accepts either a full `document` OR structured `name` + `function` (enum) + `location`
+  (enum) + `source` (Java body), and assembles a valid document for you. Returns `ok=false` with Burp's parser
+  messages on a bad script.
+- **`bambda_script_doc`** — a paginated, topic-keyed DSL reference (format, function/location enums, in-scope
+  variables, helpers, enums, and per-function worked examples). Call with no args for the topic index.
+- **`bambda_repo_list` / `bambda_fetch`** — browse and fetch real scripts from the official PortSwigger/bambdas
+  repo (read-only, host-pinned, no arbitrary URLs; LGPL-3.0 + per-file `@author` preserved).
+- **`bambda_save` / `bambda_list` / `bambda_get` / `bambda_delete`** — a sandboxed local `.bambda` library.
+
+Great for autonomous pentest/bug-bounty: custom filters, columns, Repeater actions, match-and-replace, and
+passive scan checks, discovered and loaded entirely through the agent.
+
+## Send clarity
+
+`http_send` / `http_send_analyze` / `http_send_compare` now carry an explicit **`ok`** flag and, when a request
+gets **no HTTP response**, return a proper **MCP error** with the reason — so a failed send can no longer be
+misread as a successful "status 0". Real HTTP statuses (incl. 401/403) are surfaced as before.
+
+169 unit tests. No breaking changes to existing tools (the old bare-snippet `bambda_import` is replaced).
+
+---
+
 # Revolt MCP Server v0.3.0 (beta)
 
 Adds **native session auto-refresh** so a rotating/expiring token is maintained without any Burp macro.

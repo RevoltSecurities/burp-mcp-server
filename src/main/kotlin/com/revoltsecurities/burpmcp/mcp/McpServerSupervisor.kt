@@ -11,6 +11,7 @@ import com.revoltsecurities.burpmcp.output.MessageRegistry
 import com.revoltsecurities.burpmcp.events.EventBuffer
 import com.revoltsecurities.burpmcp.integrations.ExternalClients
 import com.revoltsecurities.burpmcp.integrations.WebhookSender
+import com.revoltsecurities.burpmcp.tools.BambdaRepo
 import com.revoltsecurities.burpmcp.tools.BurpActions
 import com.revoltsecurities.burpmcp.tools.ToolMeta
 import com.revoltsecurities.burpmcp.tools.BurpCollaborator
@@ -48,6 +49,7 @@ class McpServerSupervisor(
     private val sessionProfileUpdater: (SessionProfile) -> Unit,
     private val sessionLoginUpdater: (SessionLogin) -> Unit,
     private val refreshService: SessionRefreshService,
+    private val bambdaRepo: BambdaRepo,
     private val log: (String) -> Unit,
 ) {
     /** Tool-call counters for the dashboard. */
@@ -183,6 +185,7 @@ class McpServerSupervisor(
         sessionProfileUpdater = sessionProfileUpdater,
         sessionLoginUpdater = sessionLoginUpdater,
         refreshService = refreshService,
+        bambdaRepo = bambdaRepo,
         statusProvider = { status },
         log = log,
     )

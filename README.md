@@ -63,12 +63,15 @@ without ever drowning in tokens, and with mutating actions gated behind an expli
 
 ## Features
 
-- **63+ MCP tools** spanning HTTP/Repeater, Scanner & Crawler (Pro), Collaborator (Pro), a programmatic
+- **70+ MCP tools** spanning HTTP/Repeater, Scanner & Crawler (Pro), Collaborator (Pro), a programmatic
   Intruder (sniper/pitchfork/clusterbomb with wordlist files), race conditions, proxy/site-map/issue
   browsing, cookies, scope, config/persistence, nuclei ingestion, webhooks, MCP federation and events.
 - **Authenticated testing** — a reusable session profile (cookies/headers/Host) set once and auto-applied to
   every send/intruder/race request and scans, plus **native token auto-refresh** (replay a login + rotate the
   token on 401/403, no Burp macro); survives context compaction and restarts (encrypted at rest).
+- **Bambda authoring** — assemble/import Burp Bambdas (custom filters, columns, Repeater actions,
+  match-and-replace, passive scan checks), a paginated DSL doc, a local `.bambda` library, and read-only browse/
+  fetch of the official PortSwigger/bambdas repo.
 - **Selectable transport** — Streamable-HTTP (default) or HTTP+SSE, chosen in the UI.
 - **Context-managed output** — keyset-cursor pagination, typed rows, byte-range body slicing with resumable
   markers, whole-response byte budget, binary omission.
@@ -255,10 +258,13 @@ Switch transport on the **Server** tab; the **Connect** tab regenerates the matc
 ## Tool catalog
 
 <details>
-<summary><b>63+ tools by domain (click to expand)</b></summary>
+<summary><b>70+ tools by domain (click to expand)</b></summary>
 
 - **Status/Config:** `status`, `burp_version`, `project_options_get/set`, `user_options_get/set`,
-  `task_engine_state`, `persistence_get/set/keys`, `bambda_import`
+  `task_engine_state`, `persistence_get/set/keys`
+- **Bambdas:** `bambda_import` (assembles a valid document from name/function/location/source), `bambda_script_doc`
+  (paginated DSL reference), `bambda_repo_list`/`bambda_fetch` (official PortSwigger/bambdas, read-only),
+  `bambda_save`/`bambda_list`/`bambda_get`/`bambda_delete` (local library)
 - **Utilities:** `url_encode/decode`, `base64_encode/decode`, `hash_compute`, `jwt_decode`, `decode_as`
 - **Requests & analysis:** `http_send`, `http_send_analyze`, `http_send_compare`, `request_parse`,
   `response_parse`, `params_extract`, `find_reflected`, `diff_requests`, `repeater_create_tab`, `intruder_send`
@@ -367,7 +373,7 @@ Tests: `./gradlew check`.
 
 ## Status & roadmap
 
-Current: **v0.3.0 (beta).** 150 unit tests; passed a multi-pass security & correctness code review and a round
+Current: **v0.4.0 (beta).** 169 unit tests; passed a multi-pass security & correctness code review and a round
 of live-agent field testing. Planned: public 1.0, standalone stdio bridge, streamable-HTTP MCP federation.
 
 ## License

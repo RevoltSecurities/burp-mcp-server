@@ -16,6 +16,8 @@ import com.revoltsecurities.burpmcp.tools.ActionTools
 import com.revoltsecurities.burpmcp.tools.EventTools
 import com.revoltsecurities.burpmcp.tools.ToolMeta
 import com.revoltsecurities.burpmcp.tools.AnalysisTools
+import com.revoltsecurities.burpmcp.tools.BambdaRepo
+import com.revoltsecurities.burpmcp.tools.BambdaTools
 import com.revoltsecurities.burpmcp.tools.BurpActions
 import com.revoltsecurities.burpmcp.tools.BurpCollaborator
 import com.revoltsecurities.burpmcp.tools.BurpDataSource
@@ -61,6 +63,7 @@ class McpServerFactory(
     private val sessionProfileUpdater: (SessionProfile) -> Unit,
     private val sessionLoginUpdater: (SessionLogin) -> Unit,
     private val refreshService: SessionRefreshService,
+    private val bambdaRepo: BambdaRepo,
     private val statusProvider: () -> McpServerStatus,
     private val log: (String) -> Unit,
 ) {
@@ -128,6 +131,7 @@ class McpServerFactory(
             addAll(ConvenienceTools(actions, messageRegistry, guard, sessionProfile).build())
             addAll(IntruderTools(actions, messageRegistry, guard, { settingsProvider().wordlistsDir }, sessionProfile).build())
             addAll(ExtraActionTools(actions, guard).build())
+            addAll(BambdaTools(actions, { settingsProvider().bambdasDir }, bambdaRepo, settingsProvider().maxToolResultBytes).build())
             addAll(ControlTools(actions).build())
             addAll(
                 SessionTools(

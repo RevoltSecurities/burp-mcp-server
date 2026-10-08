@@ -290,7 +290,9 @@ class SendSessionInjectionTest {
         val r = Results.json.decodeFromJsonElement(SendCompareResult.serializer(), res.structuredContent!!)
         assertEquals("no response (timeout)", r.errorA)
         assertEquals("no response (timeout)", r.errorB)
-        assertTrue(r.note!!.contains("no response", ignoreCase = true))
+        assertFalse(r.ok) // explicit failure flag so "status 0" can't be misread as success
+        assertTrue(res.isError == true) // surfaced as an MCP error
+        assertTrue(r.note!!.contains("NO HTTP response", ignoreCase = true))
     }
 }
 

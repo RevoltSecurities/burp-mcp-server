@@ -6,6 +6,7 @@ import com.revoltsecurities.burpmcp.config.Defaults
 import com.revoltsecurities.burpmcp.config.SettingsStore
 import com.revoltsecurities.burpmcp.events.EventBuffer
 import com.revoltsecurities.burpmcp.events.MontoyaEventSource
+import com.revoltsecurities.burpmcp.integrations.GithubBambdaRepo
 import com.revoltsecurities.burpmcp.integrations.KtorWebhookSender
 import com.revoltsecurities.burpmcp.integrations.SdkExternalClients
 import com.revoltsecurities.burpmcp.mcp.McpServerSupervisor
@@ -30,6 +31,7 @@ class App(private val api: MontoyaApi) {
     private var webhookSender: KtorWebhookSender? = null
     private var eventSource: MontoyaEventSource? = null
     private var sessionHandling: MontoyaSessionHandling? = null
+    private var bambdaRepo: GithubBambdaRepo? = null
 
     fun initialize() {
         api.extension().setName(Defaults.EXTENSION_NAME)
@@ -68,10 +70,12 @@ class App(private val api: MontoyaApi) {
         )
         // Inject the stored session profile into in-scope scanner traffic + auto-refresh on trigger statuses.
         sessionHandling = MontoyaSessionHandling(api, { settings.current.sessionProfile }, refreshService).also { it.start() }
+        val repo = GithubBambdaRepo()
+        bambdaRepo = repo
         supervisor = McpServerSupervisor(
             env, Defaults.VERSION, dataSource, actions, scanner, collaborator, external, webhook,
             eventBuffer, metrics, messageRegistry, { settings.current }, sessionProfileUpdater,
-            sessionLoginUpdater, refreshService,
+            sessionLoginUpdater, refreshService, repo,
         ) { api.logging().logToOutput(it) }
 
         api.logging().logToOutput("${Defaults.EXTENSION_NAME} v${Defaults.VERSION} loading — ${env.describe()}")
@@ -93,6 +97,7 @@ class App(private val api: MontoyaApi) {
         eventSource?.stop()
         externalClients?.shutdown()
         webhookSender?.close()
+        bambdaRepo?.close()
         api.logging().logToOutput("${Defaults.EXTENSION_NAME} unloaded.")
     }
 }

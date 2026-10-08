@@ -33,6 +33,8 @@ data class McpSettings(
     val externalMcpServers: List<ExternalMcpServerConfig> = emptyList(),
     /** Directory holding user payload wordlists that intruder_attack may reference by name. Empty = ~/.revolt-mcp/wordlists. */
     val wordlistsDir: String = "",
+    /** Directory for the local .bambda script library. Empty = ~/.revolt-mcp/bambdas. */
+    val bambdasDir: String = "",
     /** Reusable auth/session profile auto-applied to outbound requests (cookies/headers encrypted at rest). */
     val sessionProfile: SessionProfile = SessionProfile(),
     /** Optional auto-login config to refresh a rotating session token (request encrypted at rest). */

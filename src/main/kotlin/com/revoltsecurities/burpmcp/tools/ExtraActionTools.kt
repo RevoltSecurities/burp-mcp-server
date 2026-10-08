@@ -11,7 +11,7 @@ class ExtraActionTools(
     private val guard: ScopeGuard,
 ) {
     fun build(): List<ToolSpec> = listOf(
-        organizerSend(), organizerItems(), wsSend(), bcheckImport(), bambdaImport(),
+        organizerSend(), organizerItems(), wsSend(), bcheckImport(),
     )
 
     private fun organizerSend(): ToolSpec {
@@ -58,15 +58,6 @@ class ExtraActionTools(
         return ToolSpec("bcheck_import", "Import BCheck", BCHECK_DESC, "Scanner", schema, mutating = true, proOnly = true) { args ->
             val outcome = actions.importBCheck(args.require("script"), args.boolOr("enabled", true))
             // Burp reports LOADED_WITH_ERRORS (not a failure status) for broken scripts — surface that as an error.
-            if (outcome.ok) Results.structured(ImportOutcome.serializer(), outcome)
-            else Results.structuredError(ImportOutcome.serializer(), outcome)
-        }
-    }
-
-    private fun bambdaImport(): ToolSpec {
-        val schema = SchemaBuilder.build { string("script", "The Bambda script source (a Java expression/snippet) to import.", required = true) }
-        return ToolSpec("bambda_import", "Import Bambda", "Import a Bambda (custom filter/match-replace) into Burp's library.", "Config", schema, mutating = true) { args ->
-            val outcome = actions.importBambda(args.require("script"))
             if (outcome.ok) Results.structured(ImportOutcome.serializer(), outcome)
             else Results.structuredError(ImportOutcome.serializer(), outcome)
         }

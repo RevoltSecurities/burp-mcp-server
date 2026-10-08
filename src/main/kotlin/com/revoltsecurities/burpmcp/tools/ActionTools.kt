@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 import java.util.concurrent.atomic.AtomicInteger
 
 @Serializable
-data class SendResult(val id: String, val status: Int?, val responseLength: Int, val mimeType: String? = null, val note: String, val error: String? = null)
+data class SendResult(val id: String, val ok: Boolean, val status: Int?, val responseLength: Int, val mimeType: String? = null, val note: String, val error: String? = null)
 
 @Serializable
 data class CookieListResult(val cookies: List<CookieDTO>)
@@ -103,14 +103,13 @@ class ActionTools(
             val sent = actions.sendRequest(content, host, port, secure, args.strOr("httpMode", "auto"))
             val id = "send:${sendCounter.incrementAndGet()}"
             registry.put(MessageRegistry.Handle(id, sent.mimeType, { sent.requestBytes }, { sent.responseBytes }))
-            Results.structured(
-                SendResult.serializer(),
-                SendResult(
-                    id = id, status = sent.statusCode, responseLength = sent.responseBytes?.size ?: 0, mimeType = sent.mimeType,
-                    note = sent.error?.let { "Request failed: $it" } ?: "Fetch the response with get_http_message id=$id part=response section=body.",
-                    error = sent.error,
-                ),
+            val result = SendResult(
+                id = id, ok = sent.error == null, status = sent.statusCode, responseLength = sent.responseBytes?.size ?: 0, mimeType = sent.mimeType,
+                note = sent.error?.let { "No HTTP response received: $it (status is unavailable, not 0)." }
+                    ?: "Fetch the response with get_http_message id=$id part=response section=body.",
+                error = sent.error,
             )
+            if (result.ok) Results.structured(SendResult.serializer(), result) else Results.structuredError(SendResult.serializer(), result)
         }
     }
 

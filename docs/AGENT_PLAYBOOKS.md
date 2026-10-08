@@ -103,6 +103,20 @@ mutate an id/role → `http_send(...)` → `get_http_message(send_id)` → `diff
 - `events_poll { afterSeq, limit, kind: http|issue }` — stream new HTTP responses and scan issues forward from a
   cursor, so an agent can react to live traffic / findings instead of re-listing.
 
+## 10. Bambdas — custom detections & actions
+*Human: "write a custom filter / column / scan check / Repeater action."*
+A Bambda is a Java snippet Burp runs in a context (filter, column, Repeater action, match-and-replace, passive
+scan check). Flow:
+- `bambda_script_doc` (no args) → topic index; `topic=format|functions|locations|variables|helpers|writing-*` to
+  learn the document shape and per-function body contract.
+- `bambda_repo_list { category }` → browse official scripts; `bambda_fetch { path }` → copy a real one.
+- `bambda_import { function, location, source }` (server assembles the document) or `{ document }` → load into
+  Burp; check `ok` + `errors`. `bambda_save`/`bambda_list`/`bambda_get`/`bambda_delete` keep your own library.
+
+**Chain (custom passive check):** `bambda_script_doc(topic=writing-scan-check)` → write an
+`AuditResult`-returning `source` → `bambda_import(function=SCAN_CHECK_PASSIVE_PER_REQUEST, location=SCANNER, …)`
+→ run a scan → triage via `get_scanner_issues`.
+
 ---
 
 ## End-to-end example: autonomous recon → audit → report
