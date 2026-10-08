@@ -52,14 +52,15 @@ class ActionTools(
     private fun sitemapAdd(): ToolSpec {
         val schema = SchemaBuilder.build {
             string("content", Descriptions.RAW_REQUEST, required = true)
-            targetSchema(this)
+            optionalTargetSchema(this)
             string("responseRaw", "Optional raw HTTP response to attach. " + Descriptions.RAW_RESPONSE)
         }
         return ToolSpec("sitemap_add", "Add to site map", "Insert a request/response into Burp's site map (e.g. a discovered endpoint).", "Site Map", schema, mutating = true) { args ->
-            val host = args.require("host"); val secure = args.boolOr("secure", true); val port = resolvePort(args, secure)
-            scopeReject(baseUrl(host, port, secure))?.let { return@ToolSpec it }
-            actions.addToSiteMap(args.require("content"), host, port, secure, args.str("responseRaw"))
-            Results.text("Added request to the site map for $host:$port.")
+            val raw = args.require("content")
+            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec noTargetError()
+            scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
+            actions.addToSiteMap(raw, t.host, t.port, t.secure, args.str("responseRaw"))
+            Results.text("Added request to the site map for ${t.host}:${t.port}.")
         }
     }
 
@@ -68,6 +69,15 @@ class ActionTools(
         b.integer("port", Descriptions.TARGET_PORT)
         b.boolean("secure", Descriptions.TARGET_SECURE, default = true)
     }
+
+    /** host optional — derived from the request's Host header when omitted (see [TargetArgs]). */
+    private fun optionalTargetSchema(b: SchemaBuilder.Builder) {
+        b.string("host", Descriptions.TARGET_HOST_OPT)
+        b.integer("port", Descriptions.TARGET_PORT_OPT)
+        b.boolean("secure", Descriptions.TARGET_SECURE_OPT, default = true)
+    }
+
+    private fun noTargetError(): CallToolResult = Results.error(Descriptions.NO_TARGET_HOST)
 
     private fun resolvePort(args: Args, secure: Boolean) = args.int("port") ?: if (secure) 443 else 80
 
@@ -89,18 +99,17 @@ class ActionTools(
     private fun httpSend(): ToolSpec {
         val schema = SchemaBuilder.build {
             string("content", Descriptions.RAW_REQUEST, required = true)
-            targetSchema(this)
+            optionalTargetSchema(this)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
             string("httpMode", "Protocol mode.", enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
         }
         return ToolSpec("http_send", "Send HTTP request", DESC_SEND, "Requests", schema, mutating = true) { args ->
-            val host = args.require("host")
-            val secure = args.boolOr("secure", true)
-            val port = resolvePort(args, secure)
-            scopeReject(baseUrl(host, port, secure))?.let { return@ToolSpec it }
-            val content = SessionInjector.apply(args.require("content"), sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), host)
-            val sent = actions.sendRequest(content, host, port, secure, args.strOr("httpMode", "auto"))
+            val raw = args.require("content")
+            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec noTargetError()
+            scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
+            val content = SessionInjector.apply(raw, sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), t.host)
+            val sent = actions.sendRequest(content, t.host, t.port, t.secure, args.strOr("httpMode", "auto"))
             val id = "send:${sendCounter.incrementAndGet()}"
             registry.put(MessageRegistry.Handle(id, sent.mimeType, { sent.requestBytes }, { sent.responseBytes }))
             val result = SendResult(
@@ -120,28 +129,30 @@ class ActionTools(
     private fun repeaterCreateTab(): ToolSpec {
         val schema = SchemaBuilder.build {
             string("content", Descriptions.RAW_REQUEST, required = true)
-            targetSchema(this)
+            optionalTargetSchema(this)
             string("tabName", "Optional Repeater tab caption.")
         }
         return ToolSpec("repeater_create_tab", "Send to Repeater", "Create a Repeater tab for a request (not auto-sent).", "Requests", schema, mutating = true) { args ->
-            val host = args.require("host"); val secure = args.boolOr("secure", true); val port = resolvePort(args, secure)
-            scopeReject(baseUrl(host, port, secure))?.let { return@ToolSpec it }
-            actions.sendToRepeater(args.require("content"), host, port, secure, args.str("tabName"))
-            Results.text("Created a Repeater tab for $host:$port.")
+            val raw = args.require("content")
+            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec noTargetError()
+            scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
+            actions.sendToRepeater(raw, t.host, t.port, t.secure, args.str("tabName"))
+            Results.text("Created a Repeater tab for ${t.host}:${t.port}.")
         }
     }
 
     private fun intruderSend(): ToolSpec {
         val schema = SchemaBuilder.build {
             string("content", Descriptions.RAW_REQUEST, required = true)
-            targetSchema(this)
+            optionalTargetSchema(this)
             string("name", "Optional Intruder tab name.")
         }
         return ToolSpec("intruder_send", "Send to Intruder", "Send a request to Intruder (populates a tab; not auto-started).", "Requests", schema, mutating = true) { args ->
-            val host = args.require("host"); val secure = args.boolOr("secure", true); val port = resolvePort(args, secure)
-            scopeReject(baseUrl(host, port, secure))?.let { return@ToolSpec it }
-            actions.sendToIntruder(args.require("content"), host, port, secure, args.str("name"))
-            Results.text("Sent to Intruder for $host:$port.")
+            val raw = args.require("content")
+            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec noTargetError()
+            scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
+            actions.sendToIntruder(raw, t.host, t.port, t.secure, args.str("name"))
+            Results.text("Sent to Intruder for ${t.host}:${t.port}.")
         }
     }
 

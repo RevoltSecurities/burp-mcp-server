@@ -40,6 +40,18 @@ object Descriptions {
     const val TARGET_PORT = "Target port. Defaults to 443 when secure, else 80."
     const val TARGET_SECURE = "Use TLS/HTTPS. Defaults to true."
 
+    const val TARGET_HOST_OPT =
+        "Target hostname, e.g. \"example.com\" (no scheme/path). OPTIONAL: if omitted it is taken from the " +
+            "request's Host header (or an absolute request-line URL) — that derived host is what the scope check " +
+            "and routing use. Pass it only to override the Host header."
+    const val TARGET_PORT_OPT =
+        "Target port. Optional: derived from the Host header's \":port\" or an absolute URL; else 443 (secure) / 80."
+    const val TARGET_SECURE_OPT =
+        "Use TLS/HTTPS. Optional: derived from an absolute https/http request-line URL; otherwise defaults to true."
+
+    const val NO_TARGET_HOST =
+        "No target host: include a Host header in the request (or pass 'host'). The scope check and routing use that host."
+
     const val SESSION_COOKIE =
         "Optional Cookie header value to inject/merge for THIS request only, e.g. \"session=abc; csrf=xyz\". " +
             "Merged over (and overriding) the stored session profile. To avoid repeating it on every call, set it " +

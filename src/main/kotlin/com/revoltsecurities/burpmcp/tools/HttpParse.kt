@@ -28,6 +28,9 @@ data class ParsedResponse(
 @Serializable
 data class ReflectedParam(val name: String, val value: String, val source: String, val reflections: Int)
 
+/** Target derived from a raw request (Host header or absolute request-line). Port/secure null = unknown. */
+data class HostTarget(val host: String, val port: Int?, val secure: Boolean?)
+
 /**
  * Pure raw-HTTP parsing and analysis. Works on request/response text so it is Montoya-free and unit-testable;
  * the tools feed it bytes fetched from the client (not from Burp), e.g. a request the agent is crafting.
@@ -66,6 +69,36 @@ object HttpParse {
             bodyLength = body.length,
             body = if (includeBody) body else null,
         )
+    }
+
+    /**
+     * Derive the connection target from a raw request: an absolute-form request-line
+     * ("GET https://h:443/p HTTP/1.1") wins; else the `Host` header (which may carry ":port"). Returns null
+     * when neither is present. `secure` is only known from an absolute https/http URL (null otherwise).
+     */
+    fun hostTarget(raw: String): HostTarget? {
+        val parsed = parseRequest(raw, includeBody = false)
+        val target = parsed.target
+        if (target.startsWith("http://", true) || target.startsWith("https://", true)) {
+            val uri = runCatching { java.net.URI(target) }.getOrNull()
+            if (!uri?.host.isNullOrEmpty()) {
+                return HostTarget(uri!!.host, uri.port.takeIf { it > 0 }, uri.scheme.equals("https", ignoreCase = true))
+            }
+        }
+        val hostHeader = parsed.headers.firstOrNull { it.name.equals("Host", ignoreCase = true) }?.value?.trim()
+        if (!hostHeader.isNullOrEmpty()) {
+            if (hostHeader.startsWith("[")) { // bracketed IPv6, e.g. [::1]:8080
+                val close = hostHeader.indexOf(']')
+                if (close >= 1) {
+                    val h = hostHeader.substring(1, close)
+                    val p = hostHeader.substring(close + 1).removePrefix(":").trim().toIntOrNull()
+                    if (h.isNotEmpty()) return HostTarget(h, p, null)
+                }
+            }
+            val h = hostHeader.substringBefore(':').trim()
+            if (h.isNotEmpty()) return HostTarget(h, hostHeader.substringAfter(':', "").trim().toIntOrNull(), null)
+        }
+        return null
     }
 
     /** Extract request parameters from the query string and (form) body. */

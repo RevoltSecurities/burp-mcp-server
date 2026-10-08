@@ -56,16 +56,20 @@ class IntruderTools(
             string("payloadFile", "SNIPER: filename of a user-configured wordlist to use as payloads (discover names with list_wordlists). Combined with any inline 'payloads'.")
             stringArray("payloadFiles", "PITCHFORK/CLUSTERBOMB: wordlist filenames, one per position in order; appended after any inline payloadSets.")
             // payloadSets (array of string arrays) is read from raw args for pitchfork/clusterbomb.
-            string("host", Descriptions.TARGET_HOST, required = true)
-            integer("port", Descriptions.TARGET_PORT)
-            boolean("secure", Descriptions.TARGET_SECURE, default = true)
+            string("host", Descriptions.TARGET_HOST_OPT + " (derived from the template's Host header).")
+            integer("port", Descriptions.TARGET_PORT_OPT)
+            boolean("secure", Descriptions.TARGET_SECURE_OPT, default = true)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
             integer("maxRequests", "Hard cap on generated requests.", default = 500, minimum = 1, maximum = maxRequests)
             string("httpMode", "Protocol mode.", enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
         }
         return ToolSpec("intruder_attack", "Intruder attack", DESC, "Attack", schema, mutating = true) { args ->
-            val host = args.require("host"); val secure = args.boolOr("secure", true); val port = guard.resolvePort(args.int("port"), secure)
+            // Derive host from the template with §…§ markers stripped, so a marker in the Host header
+            // (fuzzing the Host) doesn't become the routing/scope host.
+            val t = TargetArgs.resolve(args, args.str("template")?.replace("§", ""))
+                ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
+            val host = t.host; val port = t.port; val secure = t.secure
             guard.reject(host, port, secure)?.let { return@ToolSpec it }
 
             val attackType = args.strOr("attackType", "sniper")

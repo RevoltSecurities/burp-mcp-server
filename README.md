@@ -373,8 +373,8 @@ Tests: `./gradlew check`.
 
 ## Status & roadmap
 
-Current: **v0.4.1 (beta).** 171 unit tests; passed a multi-pass security & correctness code review and a round
-of live-agent field testing. Planned: public 1.0, standalone stdio bridge, streamable-HTTP MCP federation.
+Current: **v1.0.0** (first public release). 183 unit tests; passed multiple multi-pass security & correctness
+code reviews plus live-agent field testing. Planned: standalone stdio bridge, streamable-HTTP MCP federation.
 
 ## License
 

@@ -61,18 +61,19 @@ class ConvenienceTools(
     private fun sendAnalyze(): ToolSpec {
         val schema = SchemaBuilder.build {
             string("content", Descriptions.RAW_REQUEST, required = true)
-            string("host", Descriptions.TARGET_HOST, required = true)
-            integer("port", Descriptions.TARGET_PORT)
-            boolean("secure", Descriptions.TARGET_SECURE, default = true)
+            string("host", Descriptions.TARGET_HOST_OPT)
+            integer("port", Descriptions.TARGET_PORT_OPT)
+            boolean("secure", Descriptions.TARGET_SECURE_OPT, default = true)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
             string("httpMode", "Protocol mode.", enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
         }
         return ToolSpec("http_send_analyze", "Send + analyze", DESC_ANALYZE, "Requests", schema, mutating = true) { args ->
-            val host = args.require("host"); val secure = args.boolOr("secure", true); val port = guard.resolvePort(args.int("port"), secure)
-            guard.reject(host, port, secure)?.let { return@ToolSpec it }
-            val content = inject(args, args.require("content"), host)
-            val ex = actions.sendRequest(content, host, port, secure, args.strOr("httpMode", "auto"))
+            val raw = args.require("content")
+            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
+            guard.reject(t.host, t.port, t.secure)?.let { return@ToolSpec it }
+            val content = inject(args, raw, t.host)
+            val ex = actions.sendRequest(content, t.host, t.port, t.secure, args.strOr("httpMode", "auto"))
             val respText = ex.responseBytes?.toString(Charsets.UTF_8) ?: ""
             val id = register("ana", ex)
             val result = SendAnalyzeResult(
@@ -92,20 +93,21 @@ class ConvenienceTools(
         val schema = SchemaBuilder.build {
             string("contentA", "First raw HTTP request. " + Descriptions.RAW_REQUEST, required = true)
             string("contentB", "Second raw HTTP request to compare against A. " + Descriptions.RAW_REQUEST, required = true)
-            string("host", Descriptions.TARGET_HOST, required = true)
-            integer("port", Descriptions.TARGET_PORT)
-            boolean("secure", Descriptions.TARGET_SECURE, default = true)
+            string("host", Descriptions.TARGET_HOST_OPT + " (derived from contentA's Host header).")
+            integer("port", Descriptions.TARGET_PORT_OPT)
+            boolean("secure", Descriptions.TARGET_SECURE_OPT, default = true)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
             string("httpMode", "Protocol mode.", enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
         }
         return ToolSpec("http_send_compare", "Send + compare", DESC_COMPARE, "Requests", schema, mutating = true) { args ->
-            val host = args.require("host"); val secure = args.boolOr("secure", true); val port = guard.resolvePort(args.int("port"), secure)
-            guard.reject(host, port, secure)?.let { return@ToolSpec it }
+            val rawA = args.require("contentA"); val rawB = args.require("contentB")
+            val t = TargetArgs.resolve(args, rawA) ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
+            guard.reject(t.host, t.port, t.secure)?.let { return@ToolSpec it }
             val mode = args.strOr("httpMode", "auto")
-            val a = inject(args, args.require("contentA"), host); val b = inject(args, args.require("contentB"), host)
-            val exA = actions.sendRequest(a, host, port, secure, mode)
-            val exB = actions.sendRequest(b, host, port, secure, mode)
+            val a = inject(args, rawA, t.host); val b = inject(args, rawB, t.host)
+            val exA = actions.sendRequest(a, t.host, t.port, t.secure, mode)
+            val exB = actions.sendRequest(b, t.host, t.port, t.secure, mode)
             val respA = exA.responseBytes?.toString(Charsets.UTF_8) ?: ""
             val respB = exB.responseBytes?.toString(Charsets.UTF_8) ?: ""
             val ok = exA.error == null && exB.error == null

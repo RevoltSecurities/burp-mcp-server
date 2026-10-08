@@ -51,22 +51,21 @@ class ScanTools(
         val schema = SchemaBuilder.build {
             boolean("active", "Active audit (true) or passive (false).", default = true)
             string("content", "Optional single raw HTTP request to seed the audit. " + Descriptions.RAW_REQUEST)
-            string("host", "Target host for the seed request; REQUIRED when content is given. " + Descriptions.TARGET_HOST)
-            integer("port", "Target port (default 443 if secure else 80).")
-            boolean("secure", "Use TLS.", default = true)
+            string("host", Descriptions.TARGET_HOST_OPT + " (used when 'content' is given).")
+            integer("port", Descriptions.TARGET_PORT_OPT)
+            boolean("secure", Descriptions.TARGET_SECURE_OPT, default = true)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
         }
         return ToolSpec("scan_audit_start", "Start audit", DESC_AUDIT, "Scanner", schema, mutating = true, proOnly = true) { args ->
             val content = args.str("content")
             val requests = if (content != null) {
-                val host = args.str("host") ?: return@ToolSpec Results.error("host is required when content is provided.")
-                val secure = args.boolOr("secure", true)
-                val port = args.int("port") ?: if (secure) 443 else 80
-                guard.reject(host, port, secure)?.let { return@ToolSpec it }
+                val t = TargetArgs.resolve(args, content)
+                    ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
+                guard.reject(t.host, t.port, t.secure)?.let { return@ToolSpec it }
                 // Inject the session profile (+ per-call override) into the seed so the audit starts authenticated.
-                val injected = SessionInjector.apply(content, sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), host)
-                listOf(RawTarget(injected, host, port, secure))
+                val injected = SessionInjector.apply(content, sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), t.host)
+                listOf(RawTarget(injected, t.host, t.port, t.secure))
             } else {
                 emptyList()
             }

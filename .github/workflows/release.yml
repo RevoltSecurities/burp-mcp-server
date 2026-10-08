@@ -32,13 +32,33 @@ jobs:
       - name: Generate checksums
         run: cd build/libs && sha256sum *.jar > SHA256SUMS.txt
 
+      # The release body is ONLY this tag's section of RELEASE_NOTES.md (which stays a cumulative changelog).
+      - name: Extract this version's release notes
+        run: |
+          python3 - "${GITHUB_REF_NAME#v}" <<'PY'
+          import sys, re
+          ver = sys.argv[1]
+          text = open("RELEASE_NOTES.md").read()
+          parts = re.split(r'(?m)^(?=# Revolt MCP Server v)', text)
+          chosen = None
+          for p in parts:
+              m = re.match(r'# Revolt MCP Server v([0-9][0-9.]*)', p)
+              if m and m.group(1) == ver:
+                  chosen = p
+                  break
+          sec = (chosen or text).strip()
+          sec = re.sub(r'\n-{3,}\s*$', '', sec).strip() + "\n"   # drop a trailing '---' separator
+          open("CURRENT_NOTES.md", "w").write(sec)
+          PY
+          echo "----- release body -----"; cat CURRENT_NOTES.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Revolt MCP Server ${{ github.ref_name }}
-          body_path: RELEASE_NOTES.md
+          body_path: CURRENT_NOTES.md          # only this version's notes, not the whole changelog
           draft: false
-          prerelease: true   # beta releases until a public 1.0
+          prerelease: ${{ contains(github.ref_name, '-') }}   # stable tags public; pre-release only for v*-*
           files: |
             build/libs/*.jar
             build/libs/SHA256SUMS.txt

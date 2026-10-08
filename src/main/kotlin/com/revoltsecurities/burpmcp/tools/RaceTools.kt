@@ -56,20 +56,21 @@ class RaceTools(
     private fun parallelSend(): ToolSpec {
         val schema = SchemaBuilder.build {
             string("content", "The raw HTTP request to fire N times simultaneously. " + Descriptions.RAW_REQUEST, required = true)
-            string("host", Descriptions.TARGET_HOST, required = true)
-            integer("port", "Target port (default 443 if secure else 80).")
-            boolean("secure", "Use TLS.", default = true)
+            string("host", Descriptions.TARGET_HOST_OPT)
+            integer("port", Descriptions.TARGET_PORT_OPT)
+            boolean("secure", "Use TLS. " + Descriptions.TARGET_SECURE_OPT, default = true)
             integer("count", "How many copies to fire simultaneously.", default = 20, minimum = 2, maximum = maxCount)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
             string("mode", "Synchronization mode.", enum = listOf("single_packet", "last_byte", "parallel"), default = "single_packet")
         }
         return ToolSpec("race_parallel_send", "Race: parallel send", DESC_PARALLEL, "Race", schema, mutating = true) { args ->
-            val host = args.require("host"); val secure = args.boolOr("secure", true); val port = args.int("port") ?: if (secure) 443 else 80
-            scopeReject(baseUrl(host, port, secure))?.let { return@ToolSpec it }
+            val content = args.require("content")
+            val t = TargetArgs.resolve(args, content) ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
+            scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
             val count = args.intOr("count", 20).coerceIn(2, maxCount)
             val mode = args.strOr("mode", "single_packet")
-            val target = RawTarget(inject(args, args.require("content"), host), host, port, secure)
+            val target = RawTarget(inject(args, content, t.host), t.host, t.port, t.secure)
             val results = actions.sendParallel(List(count) { target }, modeToHttp(mode))
             summarize(results, mode, "Fired $count identical requests (${modeToHttp(mode)}).")
         }
@@ -78,20 +79,20 @@ class RaceTools(
     private fun batchSend(): ToolSpec {
         val schema = SchemaBuilder.build {
             stringArray("requests", "Two or more raw HTTP requests (each a full raw request per http_send format) to fire together as one batch.", required = true)
-            string("host", "Target host shared by all requests. " + Descriptions.TARGET_HOST, required = true)
-            integer("port", "Target port (default 443 if secure else 80).")
-            boolean("secure", "Use TLS.", default = true)
+            string("host", "Target host shared by all requests. " + Descriptions.TARGET_HOST_OPT + " (derived from the first request).")
+            integer("port", Descriptions.TARGET_PORT_OPT)
+            boolean("secure", "Use TLS. " + Descriptions.TARGET_SECURE_OPT, default = true)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
             string("mode", "Synchronization mode.", enum = listOf("single_packet", "last_byte", "parallel"), default = "single_packet")
         }
         return ToolSpec("race_batch_send", "Race: batch send", DESC_BATCH, "Race", schema, mutating = true) { args ->
-            val host = args.require("host"); val secure = args.boolOr("secure", true); val port = args.int("port") ?: if (secure) 443 else 80
-            scopeReject(baseUrl(host, port, secure))?.let { return@ToolSpec it }
             val raws = args.strList("requests")
             if (raws.size < 2) return@ToolSpec Results.error("Provide at least two requests in 'requests'.")
+            val t = TargetArgs.resolve(args, raws.first()) ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
+            scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
             val mode = args.strOr("mode", "single_packet")
-            val results = actions.sendParallel(raws.map { RawTarget(inject(args, it, host), host, port, secure) }, modeToHttp(mode))
+            val results = actions.sendParallel(raws.map { RawTarget(inject(args, it, t.host), t.host, t.port, t.secure) }, modeToHttp(mode))
             summarize(results, mode, "Fired ${raws.size} distinct requests as one batch (${modeToHttp(mode)}).")
         }
     }
