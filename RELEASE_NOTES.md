@@ -38,6 +38,20 @@ testing, with no breaking changes to the tool surface.
   configured budget), body slices snap the **start** offset to a UTF‑8 boundary, and keyset cursors validate
   their sort ordering, not just the filter set.
 
+## Engine
+
+- **True HTTP/1.1 last-byte race gate (clean-room).** `race_parallel_send`/`race_batch_send` with
+  `mode=last_byte` now use a from-scratch last-byte-synchronization engine (`engine/Http1RaceGate`): one raw
+  connection per request, every byte but the last written and flushed, a barrier until all connections are
+  primed, then the held-back final byte released on all connections simultaneously (`TCP_NODELAY`, ALPN pinned
+  to http/1.1). This is the public PortSwigger technique implemented on plain JDK sockets — no third-party
+  code — for the tightest HTTP/1 race window. `mode=single_packet` continues to use Burp's HTTP/2
+  single-packet (`sendRequests` + HTTP/2), which is what Turbo Intruder itself uses.
+- **Managed request engine for fuzzing.** `intruder_attack` can route through Burp's
+  `RequestExecutionEngine` (concurrency-limited, throttled, retried) when you pass `concurrency` and/or
+  `throttleMs` — recommended for large or rate-sensitive targets. Reflection-guarded (2026.7+); falls back to
+  the parallel batch on older Burp or if the engine is unavailable.
+
 ## Enhancements
 
 - **Structured request building (prevents malformed requests).** The standard request tools — `http_send`,

@@ -69,8 +69,38 @@ interface BurpActions {
     fun addToSiteMap(raw: String, host: String, port: Int, secure: Boolean, responseRaw: String?)
     /** Send many requests in parallel (one batch); HTTP/2 mode enables Burp's single-packet coalescing. */
     fun sendParallel(requests: List<RawTarget>, mode: String): List<SentExchange>
+
+    /**
+     * Fire a batch with true HTTP/1.1 **last-byte synchronization** (clean-room [Http1RaceGate]) for the
+     * tightest race windows Burp's batch send can't guarantee. Pure JDK networking, so the default impl needs
+     * no Burp and is inherited by every seam implementation; test doubles may override it.
+     */
+    fun sendLastByteSync(requests: List<RawTarget>): List<SentExchange> {
+        val resps = com.revoltsecurities.burpmcp.engine.Http1RaceGate.fire(
+            requests.map { com.revoltsecurities.burpmcp.engine.Http1RaceGate.Req(it.raw, it.host, it.port, it.secure) },
+        )
+        return requests.mapIndexed { i, rt ->
+            val r = resps.getOrNull(i)
+            SentExchange(
+                statusCode = r?.status,
+                mimeType = null,
+                requestBytes = rt.raw.toByteArray(Charsets.ISO_8859_1),
+                responseBytes = r?.responseBytes,
+                error = r?.error,
+            )
+        }
+    }
     /** True if the managed high-throughput RequestExecutionEngine (Burp/montoya 2026.7+) is available. */
     fun managedEngineAvailable(): Boolean
+
+    /**
+     * Send a batch through Burp's managed `RequestExecutionEngine` — concurrency-limited, throttled and
+     * retried — for controlled high-throughput fuzzing. [concurrency] <= 0 means the engine default;
+     * [throttleMillis] <= 0 means no throttle. Default impl (and older Burp) falls back to a plain parallel
+     * batch, so test doubles need not implement it.
+     */
+    fun sendManaged(requests: List<RawTarget>, concurrency: Int, throttleMillis: Long, maxRetries: Int): List<SentExchange> =
+        sendParallel(requests, "auto")
 
     // ---- Phase 10 additions (default no-ops so test doubles stay simple; MontoyaActions overrides all) ----
     fun sendToOrganizer(raw: String, host: String, port: Int, secure: Boolean) {}

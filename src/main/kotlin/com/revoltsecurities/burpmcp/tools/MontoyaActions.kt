@@ -125,6 +125,50 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
     override fun managedEngineAvailable(): Boolean =
         runCatching { api.http().javaClass.methods.any { it.name == "createRequestEngine" } }.getOrDefault(false)
 
+    override fun sendManaged(requests: List<RawTarget>, concurrency: Int, throttleMillis: Long, maxRetries: Int): List<SentExchange> {
+        if (requests.isEmpty()) return emptyList()
+        // createRequestEngine()/RequestExecutionEngine are Burp 2026.7+ only. Guard on availability so the
+        // engine types below are never linked on the 2025.4.4 floor, and fall back to the plain batch send if
+        // the engine is unavailable or fails for any reason (so a run never silently loses requests).
+        if (!managedEngineAvailable()) return sendParallel(requests, "auto")
+        val viaEngine = runCatching { runManagedEngine(requests, concurrency, throttleMillis, maxRetries) }.getOrNull()
+        return if (!viaEngine.isNullOrEmpty()) viaEngine else sendParallel(requests, "auto")
+    }
+
+    /** Only reached when [managedEngineAvailable]; the 2026.7 `http.execution.*` types it names are therefore
+     *  linked lazily and never touched on older Burp (same pattern as [organizerItems]). */
+    private fun runManagedEngine(requests: List<RawTarget>, concurrency: Int, throttleMillis: Long, maxRetries: Int): List<SentExchange> {
+        var pool = burp.api.montoya.http.execution.ResourcePool.resourcePool()
+        if (concurrency > 0) pool = pool.withConcurrentRequestLimit(concurrency)
+        if (throttleMillis > 0) pool = pool.withThrottle(java.time.Duration.ofMillis(throttleMillis))
+        if (maxRetries >= 0) pool = pool.withMaxRetries(maxRetries)
+        val options = burp.api.montoya.http.execution.RequestEngineOptions.requestEngineOptions().withResourcePool(pool)
+        val engine = api.http().createRequestEngine(options)
+        val built = requests.map {
+            HttpRequest.httpRequest(HttpService.httpService(it.host, it.port, it.secure), SessionInjector.apply(it.raw, EMPTY_PROFILE, it.host))
+        }
+        built.forEachIndexed { i, req -> engine.queue(req, i.toString()) }
+        val result = engine.sendAll().lifetime().awaitCompletion()
+        val out = arrayOfNulls<SentExchange>(requests.size)
+        for (rr in result.results()) {
+            val idx = rr.label()?.toIntOrNull() ?: continue
+            if (idx !in requests.indices) continue
+            val responded = rr.status().name == "RESPONDED"
+            val rqrs = runCatching { rr.requestResponse() }.getOrNull()
+            val resp = if (responded && rqrs != null && rqrs.hasResponse()) rqrs.response() else null
+            out[idx] = SentExchange(
+                statusCode = resp?.statusCode()?.toInt(),
+                mimeType = resp?.let { runCatching { it.headerValue("Content-Type") }.getOrNull() },
+                requestBytes = runCatching { (rqrs?.request() ?: built[idx]).toByteArray().getBytes() }.getOrDefault(ByteArray(0)),
+                responseBytes = resp?.let { runCatching { it.toByteArray().getBytes() }.getOrNull() },
+                error = if (resp == null) "engine: ${rr.status().name.lowercase()}" else null,
+            )
+        }
+        return built.mapIndexed { i, req ->
+            out[i] ?: SentExchange(null, null, runCatching { req.toByteArray().getBytes() }.getOrDefault(ByteArray(0)), null, "engine: no result")
+        }
+    }
+
     override fun addToSiteMap(raw: String, host: String, port: Int, secure: Boolean, responseRaw: String?) {
         val service = HttpService.httpService(host, port, secure)
         val req = HttpRequest.httpRequest(service, raw)

@@ -64,6 +64,9 @@ class IntruderTools(
             stringArray("headers", Descriptions.SESSION_HEADERS)
             integer("maxRequests", "Hard cap on generated requests.", default = 500, minimum = 1, maximum = maxRequests)
             string("httpMode", Descriptions.HTTP_MODE, enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
+            integer("concurrency", "Max simultaneous in-flight requests. >0 routes the attack through Burp's managed request engine (concurrency-limited, retried) when available — recommended for large or rate-sensitive targets; 0 = fire the whole batch at once.", default = 0, minimum = 0)
+            integer("throttleMs", "Delay between requests in milliseconds (engine throttle). >0 also uses the managed engine. 0 = no throttle.", default = 0, minimum = 0)
+            integer("maxRetries", "Managed-engine retries per failed request (only applies when concurrency/throttleMs route through the engine).", default = 0, minimum = 0)
         }
         return ToolSpec("intruder_attack", "Intruder attack", DESC, "Attack", schema, mutating = true) { args ->
             // Derive host from the template with §…§ markers stripped, so a marker in the Host header
@@ -100,7 +103,18 @@ class IntruderTools(
                 actions.sendParallel(listOf(targets.first()), m).firstOrNull()
                     ?: SentExchange(null, null, ByteArray(0), null, "no response")
             }
-            val results = actions.sendParallel(targets, sel.mode)
+            // Route through Burp's managed engine (concurrency-limited/throttled/retried) when the caller asked
+            // for it AND the working transport is plain `auto` (the engine negotiates like auto and takes no
+            // mode); otherwise fire the proven parallel batch in the probed mode.
+            val concurrency = args.intOr("concurrency", 0)
+            val throttleMs = args.intOr("throttleMs", 0)
+            val useEngine = (concurrency > 0 || throttleMs > 0) && sel.mode.equals("auto", ignoreCase = true)
+            val engineUsed = useEngine && actions.managedEngineAvailable()
+            val results = if (useEngine) {
+                actions.sendManaged(targets, concurrency, throttleMs.toLong(), args.intOr("maxRetries", 0))
+            } else {
+                actions.sendParallel(targets, sel.mode)
+            }
             val groups = RaceAnalyzer.analyze(results).map { g ->
                 val ex = results.getOrNull(g.exampleIndex) ?: return@map g
                 val id = "intr:${counter.incrementAndGet()}"
@@ -126,6 +140,8 @@ class IntruderTools(
                 } else {
                     append(if (anomaly) "Outcomes DIVERGED — inspect minority groups (likely findings). " else "All responses look uniform. ")
                     append("Fetch a representative with get_http_message using a group's representativeId.")
+                    if (engineUsed) append(" Sent via Burp's managed request engine (concurrency=$concurrency, throttleMs=$throttleMs).")
+                    else if (useEngine) append(" (Managed engine requested but unavailable on this Burp; used a parallel batch.)")
                     if (sel.switchedFrom(requestedMode)) append(" (Auto-selected httpMode=${sel.mode}.)")
                     if (failed > 0) append(" WARNING: $failed/${results.size} request(s) got NO response (status 0) — likely auth/host/TLS; add a session via session_set or the cookie/headers params.")
                     if (edge != null) append(" Some responses came from an edge/WAF layer (server=$edge).")

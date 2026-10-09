@@ -44,6 +44,19 @@ class RaceTools(
         else -> "auto"
     }
 
+    private fun isLastByte(mode: String): Boolean = mode.equals("last_byte", true) || mode.equals("last-byte", true)
+
+    /** single_packet → Burp's HTTP/2 single-packet; last_byte → our clean-room HTTP/1 last-byte gate;
+     *  parallel → ordinary concurrent HTTP/1 sends. */
+    private fun fireRace(targets: List<RawTarget>, mode: String): List<SentExchange> =
+        if (isLastByte(mode)) actions.sendLastByteSync(targets) else actions.sendParallel(targets, modeToHttp(mode))
+
+    private fun transportLabel(mode: String): String = when {
+        isLastByte(mode) -> "HTTP/1.1 last-byte sync"
+        mode.lowercase().startsWith("single") -> "HTTP/2 single-packet"
+        else -> modeToHttp(mode)
+    }
+
     private fun baseUrl(host: String, port: Int, secure: Boolean): String {
         val scheme = if (secure) "https" else "http"
         val portPart = if ((secure && port == 443) || (!secure && port == 80)) "" else ":$port"
@@ -71,8 +84,8 @@ class RaceTools(
             val count = args.intOr("count", 20).coerceIn(2, maxCount)
             val mode = args.strOr("mode", "single_packet")
             val target = RawTarget(inject(args, content, t.host), t.host, t.port, t.secure)
-            val results = actions.sendParallel(List(count) { target }, modeToHttp(mode))
-            summarize(results, mode, "Fired $count identical requests (${modeToHttp(mode)}).")
+            val results = fireRace(List(count) { target }, mode)
+            summarize(results, mode, "Fired $count identical requests (${transportLabel(mode)}).")
         }
     }
 
@@ -92,8 +105,8 @@ class RaceTools(
             val t = TargetArgs.resolve(args, raws.first()) ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
             scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
             val mode = args.strOr("mode", "single_packet")
-            val results = actions.sendParallel(raws.map { RawTarget(inject(args, it, t.host), t.host, t.port, t.secure) }, modeToHttp(mode))
-            summarize(results, mode, "Fired ${raws.size} distinct requests as one batch (${modeToHttp(mode)}).")
+            val results = fireRace(raws.map { RawTarget(inject(args, it, t.host), t.host, t.port, t.secure) }, mode)
+            summarize(results, mode, "Fired ${raws.size} distinct requests as one batch (${transportLabel(mode)}).")
         }
     }
 
