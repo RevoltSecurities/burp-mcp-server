@@ -57,7 +57,11 @@ object BodySlicer {
             )
         }
 
-        val start = offset.coerceIn(0, total)
+        // Snap the START forward to a char boundary too, not just the end. A caller-supplied offset (not one
+        // of our snapped nextAction offsets) can land mid-multibyte-char; beginning on a continuation byte
+        // would decode those orphaned bytes to U+FFFD. The partial char's leading bytes belong to the prior
+        // char, which a correctly-resumed earlier slice already emitted, so skipping them loses no data.
+        val start = snapStartToCharBoundary(bytes, offset.coerceIn(0, total), total)
         val want = length.coerceIn(0, maxLength)
         val end = snapToCharBoundary(bytes, start, (start + want).coerceAtMost(total), total)
         val windowBytes = if (start >= end) ByteArray(0) else bytes.copyOfRange(start, end)
@@ -99,6 +103,16 @@ object BodySlicer {
         var f = start + 1
         while (f < total && isContinuationByte(bytes[f])) f++
         return f
+    }
+
+    /**
+     * Snap a start offset forward to the next UTF-8 lead/ASCII byte, so a slice never begins in the middle of
+     * a multibyte character. Advances past any continuation bytes at [start].
+     */
+    private fun snapStartToCharBoundary(bytes: ByteArray, start: Int, total: Int): Int {
+        var s = start
+        while (s < total && isContinuationByte(bytes[s])) s++
+        return s
     }
 
     private fun isContinuationByte(b: Byte): Boolean = (b.toInt() and 0xC0) == 0x80

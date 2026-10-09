@@ -55,7 +55,7 @@ class RaceTools(
 
     private fun parallelSend(): ToolSpec {
         val schema = SchemaBuilder.build {
-            string("content", "The raw HTTP request to fire N times simultaneously. " + Descriptions.RAW_REQUEST, required = true)
+            string("raw_request", "The complete, BYTE-EXACT raw HTTP request to fire N times simultaneously. " + Descriptions.RAW_REQUEST_BYTE_EXACT, required = true)
             string("host", Descriptions.TARGET_HOST_OPT)
             integer("port", Descriptions.TARGET_PORT_OPT)
             boolean("secure", "Use TLS. " + Descriptions.TARGET_SECURE_OPT, default = true)
@@ -65,7 +65,7 @@ class RaceTools(
             string("mode", "Synchronization mode.", enum = listOf("single_packet", "last_byte", "parallel"), default = "single_packet")
         }
         return ToolSpec("race_parallel_send", "Race: parallel send", DESC_PARALLEL, "Race", schema, mutating = true) { args ->
-            val content = args.require("content")
+            val content = args.require("raw_request")
             val t = TargetArgs.resolve(args, content) ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
             scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
             val count = args.intOr("count", 20).coerceIn(2, maxCount)
@@ -78,7 +78,7 @@ class RaceTools(
 
     private fun batchSend(): ToolSpec {
         val schema = SchemaBuilder.build {
-            stringArray("requests", "Two or more raw HTTP requests (each a full raw request per http_send format) to fire together as one batch.", required = true)
+            stringArray("raw_requests", "Two or more complete, BYTE-EXACT raw HTTP requests to fire together as one batch. " + Descriptions.RAW_REQUEST_BYTE_EXACT, required = true)
             string("host", "Target host shared by all requests. " + Descriptions.TARGET_HOST_OPT + " (derived from the first request).")
             integer("port", Descriptions.TARGET_PORT_OPT)
             boolean("secure", "Use TLS. " + Descriptions.TARGET_SECURE_OPT, default = true)
@@ -87,8 +87,8 @@ class RaceTools(
             string("mode", "Synchronization mode.", enum = listOf("single_packet", "last_byte", "parallel"), default = "single_packet")
         }
         return ToolSpec("race_batch_send", "Race: batch send", DESC_BATCH, "Race", schema, mutating = true) { args ->
-            val raws = args.strList("requests")
-            if (raws.size < 2) return@ToolSpec Results.error("Provide at least two requests in 'requests'.")
+            val raws = args.strList("raw_requests")
+            if (raws.size < 2) return@ToolSpec Results.error("Provide at least two requests in 'raw_requests'.")
             val t = TargetArgs.resolve(args, raws.first()) ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
             scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
             val mode = args.strOr("mode", "single_packet")
@@ -109,11 +109,23 @@ class RaceTools(
             }
         }
         val anomaly = RaceAnalyzer.isAnomalous(groups)
-        val failed = results.count { it.error != null }
+        // Count degenerate (status 0 / no response) results, not just error!=null — a failed HTTP/2
+        // negotiation (what single_packet uses) surfaces as status 0 with error==null.
+        val failed = HttpSend.degenerateCount(results)
+        val allFailed = HttpSend.allDegenerate(results)
+        val edge = results.firstOrNull { HttpSend.edgeSignature(it) != null }?.let { HttpSend.edgeSignature(it) }
         val note = buildString {
             append(prefix)
-            append(if (anomaly) " Outcomes DIVERGED (${groups.size} groups) — possible race win; inspect the minority group via get_http_message." else " All responses identical.")
-            if (failed > 0) append(" $failed/${results.size} request(s) got NO response (status 0) — likely auth/host/TLS; add a session via session_set or the cookie/headers params.")
+            if (allFailed) {
+                append(" ALL ${results.size} requests failed at the transport (status 0 / no response). ")
+                if (modeToHttp(mode) == "http2") append("single_packet runs over HTTP/2, which this target's Burp connection could not negotiate — retry with mode=parallel or last_byte (HTTP/1.1), at reduced timing precision. ")
+                else append("Check auth/host/TLS, or retry with a session via session_set. ")
+                if (edge != null) append("The edge responded as '$edge' (likely a WAF/edge block). ")
+            } else {
+                append(if (anomaly) " Outcomes DIVERGED (${groups.size} groups) — possible race win; inspect the minority group via get_http_message." else " All responses identical.")
+                if (failed > 0) append(" $failed/${results.size} request(s) got NO response (status 0) — likely auth/host/TLS; add a session via session_set or the cookie/headers params.")
+                if (edge != null) append(" Some responses came from an edge/WAF layer (server=$edge).")
+            }
         }
         return Results.structured(
             RaceResult.serializer(),

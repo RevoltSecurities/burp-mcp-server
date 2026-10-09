@@ -16,7 +16,15 @@ data class SentExchange(
 data class CookieDTO(val name: String, val value: String, val domain: String, val path: String?)
 
 @Serializable
-data class OrganizerItemDTO(val id: Int, val status: String)
+data class OrganizerItemDTO(
+    val id: Int,
+    val status: String,
+    val url: String? = null,
+    val host: String? = null,
+    val method: String? = null,
+    val httpStatus: Int? = null,
+    val notes: String? = null,
+)
 
 @Serializable
 data class WsSendResult(val connected: Boolean, val upgradeStatus: Int? = null, val messages: List<String> = emptyList(), val note: String)

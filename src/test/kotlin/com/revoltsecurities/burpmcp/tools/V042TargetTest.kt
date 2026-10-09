@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -103,25 +104,30 @@ private class HostCapturingActions : BurpActions {
 class HostlessSendTest {
 
     @Test
-    fun `http_send with no host derives it from the Host header for routing and scope`() {
+    fun `http_send routes and scope-checks the structured host and port`() {
         val actions = HostCapturingActions()
         val scoped = StringBuilder()
         val tool = ActionTools(actions, MessageRegistry(), scopeOnly = { true }, isInScope = { url -> scoped.append(url); url.contains("content.com") })
             .build().first { it.id == "http_send" }
         val res = runBlocking {
-            tool.handler(Args(buildJsonObject { put("content", JsonPrimitive("GET /x HTTP/1.1\r\nHost: content.com:8080\r\n\r\n")) }))
+            tool.handler(Args(buildJsonObject {
+                put("host", JsonPrimitive("content.com")); put("port", JsonPrimitive(8080)); put("path", JsonPrimitive("/x"))
+            }))
         }
-        assertEquals("content.com", actions.lastHost) // derived from Host header, not a 'host' arg
+        assertEquals("content.com", actions.lastHost)
         assertEquals(8080, actions.lastPort)
         assertTrue(res.isError != true)
-        assertTrue(scoped.contains("content.com")) // scope was checked against the derived host
+        assertTrue(scoped.contains("content.com")) // scope was checked against the structured host
     }
 
     @Test
-    fun `http_send with neither host arg nor Host header errors clearly`() {
+    fun `http_send with neither host nor url errors clearly`() {
         val tool = ActionTools(HostCapturingActions(), MessageRegistry(), scopeOnly = { false }, isInScope = { true })
             .build().first { it.id == "http_send" }
-        val res = runBlocking { tool.handler(Args(buildJsonObject { put("content", JsonPrimitive("GET /x HTTP/1.1\r\nAccept: x\r\n\r\n")) })) }
-        assertTrue(res.isError == true)
+        // structured-only: with no host and no url the builder rejects the call (the registry surfaces it as
+        // an MCP error on the wire path).
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { tool.handler(Args(buildJsonObject { put("method", JsonPrimitive("GET")) })) }
+        }
     }
 }

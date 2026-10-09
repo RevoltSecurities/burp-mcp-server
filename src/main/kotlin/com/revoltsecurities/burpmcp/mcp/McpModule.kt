@@ -75,10 +75,20 @@ fun Application.installMcpModule(
     }
 }
 
-/** True for loopback hostnames/literals. */
+/**
+ * True only for genuine loopback hostnames/literals. The IPv4 check is a **strict dotted-quad** parse of the
+ * 127.0.0.0/8 range — never a `startsWith("127.")` prefix, which would misclassify an attacker-registered
+ * name like `127.0.0.1.evil.com` (DNS-rebinding into `127.0.0.1`) as loopback and defeat the Origin/Host
+ * gate. We never DNS-resolve the untrusted host string here (resolution would itself enable rebinding and
+ * block); a non-literal name fails closed.
+ */
 fun isLoopbackHost(host: String): Boolean {
     val h = host.trim().removeSurrounding("[", "]").lowercase()
-    return h == "localhost" || h == "::1" || h == "0:0:0:0:0:0:0:1" || h.startsWith("127.")
+    if (h == "localhost" || h == "::1" || h == "0:0:0:0:0:0:0:1") return true
+    val octets = h.split('.')
+    if (octets.size != 4) return false
+    if (octets.any { it.isEmpty() || it.length > 3 || !it.all(Char::isDigit) || it.toInt() !in 0..255 }) return false
+    return octets[0].toInt() == 127
 }
 
 private fun originHost(origin: String): String? =

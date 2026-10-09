@@ -25,6 +25,13 @@ object ReportPath {
         val base = baseDir.toAbsolutePath().normalize()
         val resolved = base.resolve(withExt).normalize()
         require(resolved.startsWith(base)) { "Report path escapes the reports directory" }
+        // Defense-in-depth: a pre-planted symlink at the target would let a report write escape the sandbox.
+        // If the entry already exists, assert its real path is still under the reports dir.
+        val realBase = runCatching { base.toRealPath() }.getOrNull()
+        val realResolved = runCatching { resolved.toRealPath() }.getOrNull()
+        if (realBase != null && realResolved != null) {
+            require(realResolved.startsWith(realBase)) { "Report path escapes the reports directory (symlink)" }
+        }
         return resolved
     }
 

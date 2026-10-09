@@ -31,6 +31,13 @@ object Wordlists {
         val root = base.toAbsolutePath().normalize()
         val resolved = root.resolve(fileName).normalize()
         require(resolved.startsWith(root)) { "Wordlist path escapes the wordlists directory" }
+        // Defense-in-depth: a symlink pre-planted in the sandbox dir would pass the string check above but
+        // resolve to a file outside it. If the entry exists, assert its REAL path is still under the root.
+        val realRoot = runCatching { root.toRealPath() }.getOrNull()
+        val realResolved = runCatching { resolved.toRealPath() }.getOrNull()
+        if (realRoot != null && realResolved != null) {
+            require(realResolved.startsWith(realRoot)) { "Wordlist path escapes the wordlists directory (symlink)" }
+        }
         return resolved
     }
 
@@ -50,7 +57,7 @@ object Wordlists {
         val root = base.toAbsolutePath().normalize()
         if (!Files.isDirectory(root)) return emptyList()
         return Files.list(root).use { stream ->
-            stream.filter { Files.isRegularFile(it) }
+            stream.filter { Files.isRegularFile(it) && !Files.isSymbolicLink(it) }
                 .map {
                     WordlistInfo(
                         name = it.fileName.toString(),

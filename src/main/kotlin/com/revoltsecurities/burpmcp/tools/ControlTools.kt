@@ -58,6 +58,9 @@ class ControlTools(private val actions: BurpActions) {
         }
         return ToolSpec("task_engine_state", "Task engine state", "Get or set Burp's global task execution engine state (running/paused).", "Config", schema, mutating = true) { args ->
             val state = args.str("state")
+            if (state != null && !state.equals("running", ignoreCase = true) && !state.equals("paused", ignoreCase = true)) {
+                return@ToolSpec Results.error("Invalid state '$state' for task_engine_state; expected 'running' or 'paused'.")
+            }
             val current = if (state != null) actions.taskEngineSet(state) else actions.taskEngineGet()
             Results.structured(TaskEngineResult.serializer(), TaskEngineResult(current))
         }

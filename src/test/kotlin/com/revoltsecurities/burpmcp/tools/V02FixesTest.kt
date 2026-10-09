@@ -267,7 +267,7 @@ class SendSessionInjectionTest {
         val tool = convenience(actions, SessionProfile(cookies = mapOf("sess" to "abc")))["http_send_analyze"]!!
         runBlocking {
             tool.handler(Args(buildJsonObject {
-                put("content", JsonPrimitive("GET /u/1 HTTP/1.1\r\nHost: t\r\n\r\n"))
+                put("path", JsonPrimitive("/u/1"))
                 put("host", JsonPrimitive("t.com"))
                 putJsonArray("headers") { add("Authorization: Bearer X") }
             }))

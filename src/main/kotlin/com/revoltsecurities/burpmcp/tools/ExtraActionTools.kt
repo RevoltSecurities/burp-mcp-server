@@ -16,16 +16,16 @@ class ExtraActionTools(
 
     private fun organizerSend(): ToolSpec {
         val schema = SchemaBuilder.build {
-            string("content", Descriptions.RAW_REQUEST, required = true)
             string("host", Descriptions.TARGET_HOST_OPT)
             integer("port", Descriptions.TARGET_PORT_OPT)
             boolean("secure", Descriptions.TARGET_SECURE_OPT, default = true)
+            structuredRequestParams()
         }
         return ToolSpec("organizer_send", "Send to Organizer", "Store a request in Burp's Organizer for later.", "Organizer", schema, mutating = true) { args ->
-            val raw = args.require("content")
-            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec Results.error(Descriptions.NO_TARGET_HOST)
+            val r = RequestBuilder.fromArgs(args)
+            val t = TargetArgs.Target(r.host, r.port, r.secure)
             guard.reject(t.host, t.port, t.secure)?.let { return@ToolSpec it }
-            actions.sendToOrganizer(raw, t.host, t.port, t.secure)
+            actions.sendToOrganizer(r.raw, t.host, t.port, t.secure)
             Results.text("Stored in Organizer (${t.host}:${t.port}).")
         }
     }

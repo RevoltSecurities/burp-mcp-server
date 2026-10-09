@@ -29,7 +29,7 @@ object EventTools {
             string("kind", "Filter by event kind.", enum = listOf("http", "issue"))
         }
         return ToolSpec("events_poll", "Poll events", "Stream recent Burp events (HTTP responses, new scan issues) forward from a cursor seq.", "Events", schema) { args ->
-            val after = args.intOr("afterSeq", 0).toLong()
+            val after = args.longOr("afterSeq", 0L)
             val limit = args.intOr("limit", 50).coerceIn(1, 200)
             val events = buffer.since(after, limit, args.str("kind"))
             Results.structured(EventsResult.serializer(), EventsResult(events, buffer.lastSeq(), events.size))

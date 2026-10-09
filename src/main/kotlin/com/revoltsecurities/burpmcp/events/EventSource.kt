@@ -27,33 +27,40 @@ class MontoyaEventSource(
     private val registrations = java.util.concurrent.CopyOnWriteArrayList<Registration>()
 
     override fun start() {
-        registrations += api.http().registerHttpHandler(object : HttpHandler {
-            override fun handleHttpRequestToBeSent(request: HttpRequestToBeSent): RequestToBeSentAction =
-                RequestToBeSentAction.continueWith(request)
+        // Each registration is guarded independently: the HTTP feed must still start even if the audit-issue
+        // handler is unavailable. api.scanner() throws under Burp Community (Scanner is Professional-only), so
+        // that registration is best-effort and its failure must never propagate into extension init.
+        runCatching {
+            registrations += api.http().registerHttpHandler(object : HttpHandler {
+                override fun handleHttpRequestToBeSent(request: HttpRequestToBeSent): RequestToBeSentAction =
+                    RequestToBeSentAction.continueWith(request)
 
-            override fun handleHttpResponseReceived(response: HttpResponseReceived): ResponseReceivedAction {
+                override fun handleHttpResponseReceived(response: HttpResponseReceived): ResponseReceivedAction {
+                    runCatching {
+                        val req = response.initiatingRequest()
+                        buffer.record(
+                            kind = "http",
+                            summary = "${req.method()} ${req.url()} -> ${response.statusCode()}",
+                            method = req.method(),
+                            url = req.url(),
+                            status = response.statusCode().toInt(),
+                        )
+                    }
+                    return ResponseReceivedAction.continueWith(response)
+                }
+            })
+        }
+
+        runCatching {
+            registrations += api.scanner().registerAuditIssueHandler { issue ->
                 runCatching {
-                    val req = response.initiatingRequest()
                     buffer.record(
-                        kind = "http",
-                        summary = "${req.method()} ${req.url()} -> ${response.statusCode()}",
-                        method = req.method(),
-                        url = req.url(),
-                        status = response.statusCode().toInt(),
+                        kind = "issue",
+                        summary = "${issue.severity().name}: ${issue.name()}",
+                        url = issue.baseUrl(),
+                        severity = issue.severity().name,
                     )
                 }
-                return ResponseReceivedAction.continueWith(response)
-            }
-        })
-
-        registrations += api.scanner().registerAuditIssueHandler { issue ->
-            runCatching {
-                buffer.record(
-                    kind = "issue",
-                    summary = "${issue.severity().name}: ${issue.name()}",
-                    url = issue.baseUrl(),
-                    severity = issue.severity().name,
-                )
             }
         }
     }

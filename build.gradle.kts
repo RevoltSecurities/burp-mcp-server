@@ -68,6 +68,32 @@ kotlin {
     }
 }
 
+// Generate a BuildVersion.kt constant from the Gradle project version so the runtime version label
+// (Defaults.VERSION, the status tool, the startup log) is always in lockstep with gradle.properties.
+val generateBuildVersion by tasks.registering {
+    val outputDir = layout.buildDirectory.dir("generated/version/kotlin")
+    val ver = project.version.toString()
+    inputs.property("version", ver)
+    outputs.dir(outputDir)
+    doLast {
+        val file = outputDir.get().file("com/revoltsecurities/burpmcp/config/BuildVersion.kt").asFile
+        file.parentFile.mkdirs()
+        file.writeText(
+            "package com.revoltsecurities.burpmcp.config\n\n" +
+                "/** Generated from the Gradle project version — do not edit. */\n" +
+                "internal const val BUILD_VERSION: String = \"$ver\"\n",
+        )
+    }
+}
+
+sourceSets.named("main") {
+    java.srcDir(generateBuildVersion)
+}
+
+tasks.named("compileKotlin") {
+    dependsOn(generateBuildVersion)
+}
+
 tasks.test {
     useJUnitPlatform()
 }

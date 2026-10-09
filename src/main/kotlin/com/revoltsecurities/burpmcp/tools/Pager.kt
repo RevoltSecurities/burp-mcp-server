@@ -12,6 +12,15 @@ import com.revoltsecurities.burpmcp.output.TruncationMarker
  */
 object Pager {
 
+    /**
+     * Bytes held back from [page]'s byte budget for the envelope scaffolding that [ByteBudget.fit] does not
+     * see: the array brackets, the `nextCursor` (an opaque base64 keyset cursor, ~150-260 B), `hasMore`,
+     * `returned`, `totalCount`, `totalIsEstimate`, and the `truncation` marker object. Conservative on
+     * purpose — it may slightly under-fill the final page, but it guarantees the serialized result never
+     * exceeds the caller's budget.
+     */
+    private const val ENVELOPE_RESERVE_BYTES = 768
+
     /** Zero-pad an int so numeric keys sort correctly as strings (e.g. "9" must sort before "10"). */
     fun intKey(value: Int): String = value.toString().padStart(12, '0')
 
@@ -31,16 +40,21 @@ object Pager {
         val afterCursor = if (cursor.isNullOrEmpty()) {
             sorted
         } else {
-            val pos = CursorCodec.decode(cursor, filterHash) // throws InvalidCursorException on mismatch
+            val pos = CursorCodec.decode(cursor, filterHash, ordering) // throws InvalidCursorException on filter/ordering mismatch
             sorted.filter { keyOf(it) > pos.lastKey }
         }
 
         val window = afterCursor.take(limit)
         val moreBeyondLimit = afterCursor.size > window.size
 
-        // Map to rows, then enforce the whole-envelope byte budget.
+        // Map to rows, then enforce the whole-envelope byte budget. The budget must bound the SERIALIZED
+        // envelope, not just the sum of row bodies: reserve space for the JSON scaffolding (array brackets +
+        // the nextCursor/hasMore/counts/truncation fields) and charge one byte per row for the inter-row
+        // comma. Without this reserve a full page could serialize past maxToolResultBytes — the very budget
+        // this layer exists to enforce.
         val rows = window.map(toRow)
-        val fit = ByteBudget.fit(rows, maxBytes, measure)
+        val budget = (maxBytes - ENVELOPE_RESERVE_BYTES).coerceAtLeast(0)
+        val fit = ByteBudget.fit(rows, budget, perItemOverhead = 1, measure = measure)
         val keptCount = fit.kept.size
         val keptSource = window.take(keptCount)
 

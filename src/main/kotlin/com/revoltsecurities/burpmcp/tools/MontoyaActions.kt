@@ -141,8 +141,20 @@ class MontoyaActions(private val api: MontoyaApi) : BurpActions {
         // Organizer.items() is Burp 2026.7+ only; on older Burp return empty rather than hitting NoSuchMethodError.
         val organizer = api.organizer()
         if (organizer.javaClass.methods.none { it.name == "items" && it.parameterCount == 0 }) return emptyList()
+        // OrganizerItem extends HttpRequestResponse, so each item also carries the captured request/response —
+        // surface url/host/method/status/notes (all best-effort) so the row is actionable, not just an id.
         return runCatching { organizer.items() }.getOrDefault(emptyList())
-            .map { OrganizerItemDTO(runCatching { it.id() }.getOrDefault(-1), runCatching { it.status().name }.getOrDefault("")) }
+            .map { item ->
+                OrganizerItemDTO(
+                    id = runCatching { item.id() }.getOrDefault(-1),
+                    status = runCatching { item.status().name }.getOrDefault(""),
+                    url = runCatching { item.url() }.getOrNull(),
+                    host = runCatching { item.httpService()?.host() }.getOrNull(),
+                    method = runCatching { item.request()?.method() }.getOrNull(),
+                    httpStatus = runCatching { if (item.hasResponse()) item.response().statusCode().toInt() else null }.getOrNull(),
+                    notes = runCatching { item.annotations()?.takeIf { it.hasNotes() }?.notes() }.getOrNull(),
+                )
+            }
     }
 
     override fun wsSend(host: String, path: String, secure: Boolean, message: String, waitMs: Long): WsSendResult {

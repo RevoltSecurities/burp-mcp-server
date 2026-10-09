@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 import java.util.concurrent.atomic.AtomicInteger
 
 @Serializable
-data class SendResult(val id: String, val ok: Boolean, val status: Int?, val statusText: String, val responseLength: Int, val mimeType: String? = null, val note: String, val error: String? = null)
+data class SendResult(val id: String, val ok: Boolean, val status: Int?, val statusText: String, val responseLength: Int, val mimeType: String? = null, val note: String, val error: String? = null, val httpModeUsed: String? = null, val targetHost: String? = null)
 
 @Serializable
 data class CookieListResult(val cookies: List<CookieDTO>)
@@ -51,15 +51,15 @@ class ActionTools(
 
     private fun sitemapAdd(): ToolSpec {
         val schema = SchemaBuilder.build {
-            string("content", Descriptions.RAW_REQUEST, required = true)
             optionalTargetSchema(this)
+            structuredRequestParams()
             string("responseRaw", "Optional raw HTTP response to attach. " + Descriptions.RAW_RESPONSE)
         }
         return ToolSpec("sitemap_add", "Add to site map", "Insert a request/response into Burp's site map (e.g. a discovered endpoint).", "Site Map", schema, mutating = true) { args ->
-            val raw = args.require("content")
-            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec noTargetError()
+            val r = RequestBuilder.fromArgs(args)
+            val t = TargetArgs.Target(r.host, r.port, r.secure)
             scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
-            actions.addToSiteMap(raw, t.host, t.port, t.secure, args.str("responseRaw"))
+            actions.addToSiteMap(r.raw, t.host, t.port, t.secure, args.str("responseRaw"))
             Results.text("Added request to the site map for ${t.host}:${t.port}.")
         }
     }
@@ -98,27 +98,41 @@ class ActionTools(
 
     private fun httpSend(): ToolSpec {
         val schema = SchemaBuilder.build {
-            string("content", Descriptions.RAW_REQUEST, required = true)
             optionalTargetSchema(this)
+            structuredRequestParams()
             string("cookie", Descriptions.SESSION_COOKIE)
-            stringArray("headers", Descriptions.SESSION_HEADERS)
-            string("httpMode", "Protocol mode.", enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
+            string("httpMode", Descriptions.HTTP_MODE, enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
         }
         return ToolSpec("http_send", "Send HTTP request", DESC_SEND, "Requests", schema, mutating = true) { args ->
-            val raw = args.require("content")
-            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec noTargetError()
+            val r = RequestBuilder.fromArgs(args)
+            val t = TargetArgs.Target(r.host, r.port, r.secure)
             scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
-            val content = SessionInjector.apply(raw, sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), t.host)
-            val sent = actions.sendRequest(content, t.host, t.port, t.secure, args.strOr("httpMode", "auto"))
+            val content = SessionInjector.apply(r.raw, sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), t.host)
+            val requestedMode = args.strOr("httpMode", "auto")
+            // Resolve the transport: for auto, probe the fallback modes so a target whose HTTP/2 Burp can't
+            // negotiate still succeeds via http1 instead of silently returning a status-0 empty response.
+            val sel = HttpSend.select(requestedMode) { m -> actions.sendRequest(content, t.host, t.port, t.secure, m) }
+            val sent = sel.exchange
+            val ok = sel.worked
             val id = "send:${sendCounter.incrementAndGet()}"
             registry.put(MessageRegistry.Handle(id, sent.mimeType, { sent.requestBytes }, { sent.responseBytes }))
+            val edge = HttpSend.edgeSignature(sent)
+            val note = buildString {
+                if (!ok) append(HttpSend.transportFailureNote(sel.tried, edge))
+                else {
+                    if (sel.switchedFrom(requestedMode)) append("Auto-selected httpMode=${sel.mode} (the requested transport returned no response). ")
+                    if (edge != null) append("Served via an edge/WAF layer (server=$edge). ")
+                    append("Fetch the response with get_http_message id=$id part=response section=body.")
+                }
+            }
             val result = SendResult(
-                id = id, ok = sent.error == null, status = sent.statusCode,
-                statusText = sent.statusCode?.toString() ?: "no response",
+                id = id, ok = ok, status = sent.statusCode,
+                statusText = if (ok) (sent.statusCode?.toString() ?: "no response") else "no response",
                 responseLength = sent.responseBytes?.size ?: 0, mimeType = sent.mimeType,
-                note = sent.error?.let { "No HTTP response received: $it — statusText=\"no response\" (the server sent nothing back; this is NOT a 0 status code)." }
-                    ?: "Fetch the response with get_http_message id=$id part=response section=body.",
-                error = sent.error,
+                note = note,
+                error = if (ok) null else (sent.error ?: "transport failed (no HTTP response; status 0)"),
+                httpModeUsed = sel.mode,
+                targetHost = t.host,
             )
             if (result.ok) Results.structured(SendResult.serializer(), result) else Results.structuredError(SendResult.serializer(), result)
         }
@@ -128,30 +142,30 @@ class ActionTools(
 
     private fun repeaterCreateTab(): ToolSpec {
         val schema = SchemaBuilder.build {
-            string("content", Descriptions.RAW_REQUEST, required = true)
             optionalTargetSchema(this)
+            structuredRequestParams()
             string("tabName", "Optional Repeater tab caption.")
         }
         return ToolSpec("repeater_create_tab", "Send to Repeater", "Create a Repeater tab for a request (not auto-sent).", "Requests", schema, mutating = true) { args ->
-            val raw = args.require("content")
-            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec noTargetError()
+            val r = RequestBuilder.fromArgs(args)
+            val t = TargetArgs.Target(r.host, r.port, r.secure)
             scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
-            actions.sendToRepeater(raw, t.host, t.port, t.secure, args.str("tabName"))
+            actions.sendToRepeater(r.raw, t.host, t.port, t.secure, args.str("tabName"))
             Results.text("Created a Repeater tab for ${t.host}:${t.port}.")
         }
     }
 
     private fun intruderSend(): ToolSpec {
         val schema = SchemaBuilder.build {
-            string("content", Descriptions.RAW_REQUEST, required = true)
             optionalTargetSchema(this)
+            structuredRequestParams()
             string("name", "Optional Intruder tab name.")
         }
         return ToolSpec("intruder_send", "Send to Intruder", "Send a request to Intruder (populates a tab; not auto-started).", "Requests", schema, mutating = true) { args ->
-            val raw = args.require("content")
-            val t = TargetArgs.resolve(args, raw) ?: return@ToolSpec noTargetError()
+            val r = RequestBuilder.fromArgs(args)
+            val t = TargetArgs.Target(r.host, r.port, r.secure)
             scopeReject(baseUrl(t.host, t.port, t.secure))?.let { return@ToolSpec it }
-            actions.sendToIntruder(raw, t.host, t.port, t.secure, args.str("name"))
+            actions.sendToIntruder(r.raw, t.host, t.port, t.secure, args.str("name"))
             Results.text("Sent to Intruder for ${t.host}:${t.port}.")
         }
     }
@@ -211,7 +225,7 @@ class ActionTools(
             integer("expiresEpochSec", "Expiry as unix seconds (default +1 year).")
         }
         return ToolSpec("cookie_set", "Set cookie", "Add/replace a cookie in Burp's cookie jar.", "Config", schema, mutating = true) { args ->
-            actions.setCookie(args.require("name"), args.require("value"), args.require("domain"), args.str("path"), args.int("expiresEpochSec")?.toLong())
+            actions.setCookie(args.require("name"), args.require("value"), args.require("domain"), args.str("path"), args.long("expiresEpochSec"))
             Results.text("Cookie '${args.require("name")}' set for ${args.require("domain")}.")
         }
     }

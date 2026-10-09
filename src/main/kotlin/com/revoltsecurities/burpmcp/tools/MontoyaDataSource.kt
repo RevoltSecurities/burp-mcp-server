@@ -86,7 +86,11 @@ class MontoyaDataSource(private val api: MontoyaApi, private val env: BurpEnv) :
             confidence = i.confidence().name,
             host = runCatching { i.httpService()?.host() }.getOrNull() ?: hostOf(i.baseUrl()),
             baseUrl = i.baseUrl(),
-            definitionId = runCatching { i.definition()?.name() }.getOrNull(),
+            // Prefer the stable numeric type index as the definition id (the display name is already in `name`);
+            // fall back to the name if typeIndex is unavailable on an older Burp. runCatching also traps a
+            // NoSuchMethodError, so referencing typeIndex() here stays safe on the 2025.4.4 runtime floor.
+            definitionId = runCatching { i.definition()?.typeIndex()?.toString() }.getOrNull()
+                ?: runCatching { i.definition()?.name() }.getOrNull(),
             detail = runCatching { i.detail() }.getOrNull(),
             remediation = runCatching { i.remediation() }.getOrNull(),
             background = null,

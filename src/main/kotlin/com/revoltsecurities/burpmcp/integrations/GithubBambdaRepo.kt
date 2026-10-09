@@ -8,6 +8,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
@@ -41,6 +42,7 @@ class GithubBambdaRepo : BambdaRepo {
         if (!resp.status.isSuccess()) {
             error("GitHub API returned ${resp.status.value} listing bambdas (likely the 60/hr anonymous rate limit — retry shortly).")
         }
+        capBody(resp)
         val root = json.parseToJsonElement(resp.bodyAsText()).jsonObject
         val tree = root["tree"]?.jsonArray ?: error("Unexpected GitHub tree response (no 'tree').")
         val entries = tree.mapNotNull { node ->
@@ -63,7 +65,16 @@ class GithubBambdaRepo : BambdaRepo {
         if (!resp.status.isSuccess()) {
             error("GitHub returned ${resp.status.value} for '$safe' (not found, or rate-limited).")
         }
+        capBody(resp)
         return resp.bodyAsText()
+    }
+
+    /** Reject an oversized response up front via Content-Length, so a single fetch can't balloon memory. */
+    private fun capBody(resp: HttpResponse) {
+        val len = resp.contentLength()
+        if (len != null && len > MAX_BODY_BYTES) {
+            error("GitHub response is ${len} bytes, exceeding the ${MAX_BODY_BYTES}-byte cap for bambda fetches.")
+        }
     }
 
     fun close() = client.close()
@@ -72,5 +83,6 @@ class GithubBambdaRepo : BambdaRepo {
 
     private companion object {
         const val CACHE_TTL_MS = 600_000L
+        const val MAX_BODY_BYTES = 10_000_000L
     }
 }

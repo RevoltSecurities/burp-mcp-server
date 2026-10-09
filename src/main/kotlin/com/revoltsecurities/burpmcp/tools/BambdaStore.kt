@@ -36,6 +36,13 @@ object BambdaStore {
         val root = base.toAbsolutePath().normalize()
         val resolved = root.resolve(fileName).normalize()
         require(resolved.startsWith(root)) { "Bambda path escapes the bambdas directory" }
+        // Defense-in-depth: reject a pre-planted symlink entry that resolves (reads/writes/deletes) outside
+        // the sandbox even though its string path is contained.
+        val realRoot = runCatching { root.toRealPath() }.getOrNull()
+        val realResolved = runCatching { resolved.toRealPath() }.getOrNull()
+        if (realRoot != null && realResolved != null) {
+            require(realResolved.startsWith(realRoot)) { "Bambda path escapes the bambdas directory (symlink)" }
+        }
         return resolved
     }
 
@@ -63,7 +70,7 @@ object BambdaStore {
         val root = base.toAbsolutePath().normalize()
         if (!Files.isDirectory(root)) return emptyList()
         return Files.list(root).use { stream ->
-            stream.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(EXT) }
+            stream.filter { Files.isRegularFile(it) && !Files.isSymbolicLink(it) && it.fileName.toString().endsWith(EXT) }
                 .map { BambdaFileInfo(it.fileName.toString(), runCatching { Files.size(it) }.getOrDefault(0)) }
                 .sorted(compareBy { it.name })
                 .toList()

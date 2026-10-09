@@ -34,10 +34,15 @@ object CursorCodec {
     }
 
     /**
-     * Decode and validate a cursor against the current [expectedFilterHash].
-     * @throws InvalidCursorException if the cursor is unparseable or was issued for a different filter set.
+     * Decode and validate a cursor against the current [expectedFilterHash] and, when supplied,
+     * [expectedOrdering]. Validating the ordering closes a keyset hazard: the sort key is only meaningful
+     * under the ordering that produced it, so resuming `key > lastKey` under a *different* sort than the
+     * cursor was issued for would silently skip or duplicate rows. Pass the current request's ordering to
+     * reject that; omit it (default) to skip the check.
+     * @throws InvalidCursorException if the cursor is unparseable, or was issued for a different filter set
+     *   or ordering.
      */
-    fun decode(cursor: String, expectedFilterHash: String): Position {
+    fun decode(cursor: String, expectedFilterHash: String, expectedOrdering: String? = null): Position {
         val record = runCatching {
             json.decodeFromString(CursorRecord.serializer(), String(decoder.decode(cursor), Charsets.UTF_8))
         }.getOrElse {
@@ -46,6 +51,11 @@ object CursorCodec {
         if (record.f != expectedFilterHash) {
             throw InvalidCursorException(
                 "Cursor was issued for a different filter set; restart the listing without a cursor after changing filters.",
+            )
+        }
+        if (expectedOrdering != null && record.o != expectedOrdering) {
+            throw InvalidCursorException(
+                "Cursor was issued for a different sort order; restart the listing without a cursor after changing ordering.",
             )
         }
         return Position(lastKey = record.k, ordering = record.o)

@@ -80,7 +80,7 @@ class RaceToolsTest {
     fun `parallel send fires count copies in single-packet http2 and flags the race win`() {
         val actions = RecordingActions()
         val res = call(tools(false, true, actions).getValue("race_parallel_send")) {
-            put("content", JsonPrimitive("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            put("raw_request", JsonPrimitive("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
             put("host", JsonPrimitive("x.com"))
             put("count", JsonPrimitive(20))
             put("mode", JsonPrimitive("single_packet"))
@@ -100,7 +100,7 @@ class RaceToolsTest {
     fun `batch send requires at least two requests`() {
         val res = call(tools(false, true, RecordingActions()).getValue("race_batch_send")) {
             put("host", JsonPrimitive("x.com"))
-            put("requests", buildJsonArray { add("GET / HTTP/1.1\r\n\r\n") })
+            put("raw_requests", buildJsonArray { add("GET / HTTP/1.1\r\n\r\n") })
         }
         assertTrue(res.isError == true)
     }
@@ -109,7 +109,7 @@ class RaceToolsTest {
     fun `parallel send blocked out of scope`() {
         val actions = RecordingActions()
         val res = call(tools(true, false, actions).getValue("race_parallel_send")) {
-            put("content", JsonPrimitive("GET / HTTP/1.1\r\n\r\n"))
+            put("raw_request", JsonPrimitive("GET / HTTP/1.1\r\n\r\n"))
             put("host", JsonPrimitive("evil.com"))
         }
         assertTrue(res.isError == true)

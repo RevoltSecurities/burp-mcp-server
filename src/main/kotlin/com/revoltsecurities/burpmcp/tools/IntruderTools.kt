@@ -19,6 +19,7 @@ data class IntruderResult(
     val sample: List<IntruderHit>,
     val note: String,
     val failed: Int = 0,
+    val httpModeUsed: String? = null,
 )
 
 /**
@@ -62,7 +63,7 @@ class IntruderTools(
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
             integer("maxRequests", "Hard cap on generated requests.", default = 500, minimum = 1, maximum = maxRequests)
-            string("httpMode", "Protocol mode.", enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
+            string("httpMode", Descriptions.HTTP_MODE, enum = listOf("auto", "http1", "http2", "http2_ignore_alpn"), default = "auto")
         }
         return ToolSpec("intruder_attack", "Intruder attack", DESC, "Attack", schema, mutating = true) { args ->
             // Derive host from the template with §…§ markers stripped, so a marker in the Host header
@@ -90,10 +91,16 @@ class IntruderTools(
             }
 
             val profile = sessionProfile().mergedWith(SessionArgs.perCallOverride(args))
-            val results = actions.sendParallel(
-                generated.map { RawTarget(SessionInjector.apply(it.request, profile, host), host, port, secure) },
-                args.strOr("httpMode", "auto"),
-            )
+            val targets = generated.map { RawTarget(SessionInjector.apply(it.request, profile, host), host, port, secure) }
+            // Pick a working transport before firing the whole batch: probe with the first generated request so
+            // an `auto` run on a target whose HTTP/2 Burp can't negotiate falls back to http1 instead of
+            // returning an all-status-0 batch (which used to report failed=0 and look "uniform").
+            val requestedMode = args.strOr("httpMode", "auto")
+            val sel = HttpSend.select(requestedMode) { m ->
+                actions.sendParallel(listOf(targets.first()), m).firstOrNull()
+                    ?: SentExchange(null, null, ByteArray(0), null, "no response")
+            }
+            val results = actions.sendParallel(targets, sel.mode)
             val groups = RaceAnalyzer.analyze(results).map { g ->
                 val ex = results.getOrNull(g.exampleIndex) ?: return@map g
                 val id = "intr:${counter.incrementAndGet()}"
@@ -107,16 +114,28 @@ class IntruderTools(
             val sizeByKey = hits.groupingBy { it.status to it.length }.eachCount()
             val sample = hits.sortedBy { sizeByKey[it.status to it.length] ?: 0 }.take(sampleSize)
             val anomaly = RaceAnalyzer.isAnomalous(groups)
-            val failed = results.count { it.error != null }
+            // Count every degenerate result (status 0 / no response), not only error!=null — a failed HTTP/2
+            // negotiation surfaces as status 0 with error==null, which the old count missed entirely.
+            val failed = HttpSend.degenerateCount(results)
+            val allFailed = HttpSend.allDegenerate(results)
+            val edge = results.firstOrNull { HttpSend.edgeSignature(it) != null }?.let { HttpSend.edgeSignature(it) }
+            val note = buildString {
+                if (allFailed) {
+                    append("ALL ${results.size} requests failed at the transport (status 0 / no response) — no useful data. ")
+                    append(HttpSend.transportFailureNote(sel.tried, edge))
+                } else {
+                    append(if (anomaly) "Outcomes DIVERGED — inspect minority groups (likely findings). " else "All responses look uniform. ")
+                    append("Fetch a representative with get_http_message using a group's representativeId.")
+                    if (sel.switchedFrom(requestedMode)) append(" (Auto-selected httpMode=${sel.mode}.)")
+                    if (failed > 0) append(" WARNING: $failed/${results.size} request(s) got NO response (status 0) — likely auth/host/TLS; add a session via session_set or the cookie/headers params.")
+                    if (edge != null) append(" Some responses came from an edge/WAF layer (server=$edge).")
+                }
+            }
             Results.structured(
                 IntruderResult.serializer(),
                 IntruderResult(
                     sent = results.size, attackType = attackType, distinctOutcomes = groups, anomaly = anomaly,
-                    sample = sample,
-                    note = (if (anomaly) "Outcomes DIVERGED — inspect minority groups (likely findings). " else "All responses look uniform. ") +
-                        "Fetch a representative with get_http_message using a group's representativeId." +
-                        (if (failed > 0) " WARNING: $failed/${results.size} request(s) got NO response (status 0) — likely auth/host/TLS; add a session via session_set or the cookie/headers params." else ""),
-                    failed = failed,
+                    sample = sample, note = note, failed = failed, httpModeUsed = sel.mode,
                 ),
             )
         }

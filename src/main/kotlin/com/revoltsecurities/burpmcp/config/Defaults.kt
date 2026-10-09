@@ -3,7 +3,10 @@ package com.revoltsecurities.burpmcp.config
 /** Centralised default values and limits. Keep every magic number here. */
 object Defaults {
     const val EXTENSION_NAME = "Revolt MCP Server"
-    const val VERSION = "1.0.0"
+
+    /** The release version, generated from the Gradle `version` at build time (see [BUILD_VERSION]) so the
+     *  runtime label can never drift from gradle.properties / the JAR filename again. */
+    const val VERSION = BUILD_VERSION
 
     // ---- Server ----
     const val HOST = "127.0.0.1"

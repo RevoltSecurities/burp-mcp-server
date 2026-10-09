@@ -11,6 +11,19 @@ object Descriptions {
             "CRLF (\\r\\n) separated. Include a Host header. Send it verbatim (do NOT URL-encode the whole thing). " +
             "Example: \"POST /login HTTP/1.1\\r\\nHost: example.com\\r\\nContent-Type: application/json\\r\\n\\r\\n{\\\"u\\\":\\\"a\\\"}\"."
 
+    const val RAW_REQUEST_OPT =
+        "OPTIONAL raw HTTP request (request-line, headers, blank line, optional body; CRLF-separated, include a " +
+            "Host header, send verbatim). Provide EITHER this, OR the structured fields (method + host/url + " +
+            "optional path/headers/body/bodyType) and the server assembles a byte-correct request for you " +
+            "(Host, Content-Type and Content-Length filled automatically) — use the structured fields to avoid " +
+            "hand-writing raw requests. Example: \"GET /health HTTP/1.1\\r\\nHost: example.com\\r\\n\\r\\n\"."
+
+    const val RAW_REQUEST_BYTE_EXACT =
+        "Provide a COMPLETE, byte-exact raw HTTP request (request-line, headers, blank line, optional body; " +
+            "CRLF-separated, include a Host header). This tool sends your bytes verbatim — it does NOT rebuild " +
+            "the request — because request smuggling / desync / single-packet races depend on exact bytes " +
+            "(e.g. a deliberately mismatched Content-Length). Do not URL-encode the whole thing."
+
     const val RAW_RESPONSE =
         "A COMPLETE raw HTTP response: status-line, headers, blank line, optional body (CRLF separated)."
 
@@ -60,4 +73,39 @@ object Descriptions {
         "Optional extra request headers to inject for THIS request only, each as a \"Name: value\" string " +
             "(e.g. [\"Authorization: Bearer eyJ...\", \"X-Api-Key: k\"]). Added or replacing same-named headers, " +
             "overriding the stored session profile. Prefer session_set for persistent auth."
+
+    // ---- Structured request builder (alternative to a raw `content` string) ----
+    const val BUILD_METHOD =
+        "HTTP method for the STRUCTURED builder (GET/POST/PUT/PATCH/DELETE/…). Used only when 'content' is " +
+            "omitted; the server assembles a byte-correct request (Host, Content-Type and Content-Length filled " +
+            "automatically). Default GET."
+    const val BUILD_URL =
+        "Full absolute URL for the STRUCTURED builder, e.g. \"https://api.example.com:443/v1/users?q=1\". " +
+            "Host, port, scheme (https→secure) and path+query are taken from it, so 'host'/'port'/'secure'/'path' " +
+            "are not needed. Used only when 'content' is omitted."
+    const val BUILD_PATH =
+        "Request path (+query) for the STRUCTURED builder when you pass 'host' instead of a full 'url', e.g. " +
+            "\"/v1/users?q=1\". Defaults to \"/\". Used only when 'content' is omitted."
+    const val BUILD_BODY =
+        "Request body for the STRUCTURED builder. Pair with 'bodyType' so the right Content-Type is set and " +
+            "Content-Length is computed for you. Used only when 'content' is omitted."
+    const val BUILD_BODY_TYPE =
+        "Shape of 'body' so the builder sets the correct Content-Type: 'json' (application/json, validated), " +
+            "'graphql' (application/json — pass a full {query,variables} object or a bare query string that gets " +
+            "wrapped), 'form' (application/x-www-form-urlencoded), 'xml' (application/xml), 'soapxml' " +
+            "(application/soap+xml), or 'raw' (you set Content-Type via headers). Default raw."
+    const val BUILD_HTTP_VERSION =
+        "Request-line HTTP version for the STRUCTURED builder: \"HTTP/1.1\" (default) or \"HTTP/2\". Note the " +
+            "actual wire transport is chosen by 'httpMode'; this only sets the request-line token."
+
+    const val REQUEST_HEADERS =
+        "Extra request headers for the STRUCTURED builder, each as a \"Name: value\" string (e.g. " +
+            "[\"Authorization: Bearer eyJ...\", \"X-Api-Key: k\"]). Host, Content-Type and Content-Length are " +
+            "set for you — do not include them here. For auth you reuse across calls, prefer session_set."
+
+    const val HTTP_MODE =
+        "HTTP transport. 'auto' (default) negotiates via ALPN AND, if the send returns no response (e.g. the " +
+            "target's HTTP/2 can't be negotiated by Burp's engine), automatically retries http1/http2 to find a " +
+            "working transport and reports which it used in httpModeUsed. Force a specific wire protocol with " +
+            "'http1', 'http2', or 'http2_ignore_alpn' (no fallback). If 'auto' reports no response, 'http1' often works."
 }
