@@ -11,8 +11,11 @@ import kotlinx.serialization.json.put
  * Content-Type for the body shape, or CRLF mistakes. The connection target (host/port/secure) is resolved
  * deterministically here too, so the scope check always has a host. Montoya-free → unit-tested.
  *
- * The send tools stay backward compatible: a raw `content` request is used as-is; the structured fields are
- * only used when `content` is omitted.
+ * NOTE: the standard send tools (`http_send`, `http_send_analyze`, `http_send_compare`, `intruder_send`,
+ * `repeater_create_tab`, `sitemap_add`, `organizer_send`) take STRUCTURED fields ONLY — the raw `content`
+ * parameter was removed from their schemas in v1.1.0 so a model cannot hand-write a malformed request. Byte-exact
+ * raw requests live only on the race/intruder tools (`raw_request` / `raw_requests` / `template`), which send
+ * verbatim and do not go through this builder.
  */
 object RequestBuilder {
 

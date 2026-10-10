@@ -174,10 +174,13 @@ object Http1RaceGate {
     }
 
     private fun endsWithChunkTerminator(b: ByteArray): Boolean {
-        // "0\r\n\r\n" at the very end marks the final chunk.
+        // The body ends with the final 0-length chunk + a blank line: "0\r\n\r\n" with no trailers, or
+        // "0\r\n<Trailer: v>\r\n...\r\n\r\n" with them. Require a "\r\n0\r\n" final-chunk marker AND a
+        // closing CRLFCRLF, so trailer-emitting servers don't make us block until the read timeout.
         if (b.size < 5) return false
-        val tail = String(b, b.size - 5, 5, Charsets.ISO_8859_1)
-        return tail == "0\r\n\r\n"
+        val tail = String(b, maxOf(0, b.size - 512), minOf(512, b.size), Charsets.ISO_8859_1)
+        if (!tail.endsWith("\r\n\r\n")) return false
+        return tail.endsWith("0\r\n\r\n") || tail.contains("\r\n0\r\n")
     }
 
     @Volatile

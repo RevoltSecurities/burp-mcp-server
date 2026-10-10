@@ -77,7 +77,8 @@ class ConvenienceTools(
             guard.reject(t.host, t.port, t.secure)?.let { return@ToolSpec it }
             val content = inject(args, r.raw, t.host)
             val requestedMode = args.strOr("httpMode", "auto")
-            val sel = HttpSend.select(requestedMode) { m -> actions.sendRequest(content, t.host, t.port, t.secure, m) }
+            val autoRetry = HttpSend.autoRetryOk(HttpParse.parseRequest(content, includeBody = false).method)
+            val sel = HttpSend.select(requestedMode, autoRetry) { m -> actions.sendRequest(content, t.host, t.port, t.secure, m) }
             val ex = sel.exchange
             val ok = sel.worked
             val respText = ex.responseBytes?.toString(Charsets.UTF_8) ?: ""
@@ -120,15 +121,19 @@ class ConvenienceTools(
         return ToolSpec("http_send_compare", "Send + compare", DESC_COMPARE, "Requests", schema, mutating = true) { args ->
             val sideA = RequestBuilder.fromArgsSide(args, "A")
             val sideB = RequestBuilder.fromArgsSide(args, "B")
-            val t = TargetArgs.Target(sideA.host, sideA.port, sideA.secure)
-            guard.reject(t.host, t.port, t.secure)?.let { return@ToolSpec it }
+            val tA = TargetArgs.Target(sideA.host, sideA.port, sideA.secure)
+            val tB = TargetArgs.Target(sideB.host, sideB.port, sideB.secure)
+            // Scope-check BOTH targets — side B may legitimately point at a different host.
+            guard.reject(tA.host, tA.port, tA.secure)?.let { return@ToolSpec it }
+            guard.reject(tB.host, tB.port, tB.secure)?.let { return@ToolSpec it }
             val requestedMode = args.strOr("httpMode", "auto")
-            val a = inject(args, sideA.raw, t.host); val b = inject(args, sideB.raw, t.host)
-            // Pick the transport with a single probe on A (so a/b are compared over the SAME working mode),
-            // then send B in that mode. For an explicit mode this is just one send of A.
-            val sel = HttpSend.select(requestedMode) { m -> actions.sendRequest(a, t.host, t.port, t.secure, m) }
+            val a = inject(args, sideA.raw, tA.host); val b = inject(args, sideB.raw, tB.host)
+            // Pick the transport with a single probe on A (auto-retry only for safe methods — a mutating A is
+            // never re-sent), then send each side to ITS OWN resolved target in that mode.
+            val autoRetry = HttpSend.autoRetryOk(HttpParse.parseRequest(a, includeBody = false).method)
+            val sel = HttpSend.select(requestedMode, autoRetry) { m -> actions.sendRequest(a, tA.host, tA.port, tA.secure, m) }
             val exA = sel.exchange
-            val exB = actions.sendRequest(b, t.host, t.port, t.secure, sel.mode)
+            val exB = actions.sendRequest(b, tB.host, tB.port, tB.secure, sel.mode)
             val respA = exA.responseBytes?.toString(Charsets.UTF_8) ?: ""
             val respB = exB.responseBytes?.toString(Charsets.UTF_8) ?: ""
             val degenA = HttpSend.isDegenerate(exA); val degenB = HttpSend.isDegenerate(exB)
@@ -157,7 +162,7 @@ class ConvenienceTools(
                 reflectedA = HttpParse.findReflected(a, respA), reflectedB = HttpParse.findReflected(b, respB),
                 errorA = if (degenA) (exA.error ?: "transport failed (status 0)") else null,
                 errorB = if (degenB) (exB.error ?: "transport failed (status 0)") else null,
-                note = note, httpModeUsed = sel.mode, targetHost = t.host,
+                note = note, httpModeUsed = sel.mode, targetHost = if (tA.host == tB.host) tA.host else "${tA.host} vs ${tB.host}",
             )
             if (ok) Results.structured(SendCompareResult.serializer(), result) else Results.structuredError(SendCompareResult.serializer(), result)
         }

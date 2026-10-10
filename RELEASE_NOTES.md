@@ -22,7 +22,10 @@ testing, with no breaking changes to the tool surface.
   (previously such sends were reported `ok=true` / `failed=0`).
 - **Automatic transport fallback.** With `httpMode=auto` (default), a send that returns no response now probes
   `http1`/`http2` and uses the one that works, reporting it in a new `httpModeUsed` field — so a target whose
-  HTTP/2 Burp can't negotiate still succeeds over HTTP/1.1 instead of silently returning empty results.
+  HTTP/2 Burp can't negotiate still succeeds over HTTP/1.1 instead of silently returning empty results. **Safety:**
+  this re-send only happens for idempotent/safe methods (GET/HEAD/OPTIONS/TRACE); a mutating request (POST/PUT/…)
+  is sent exactly once and, if it gets no response, reported as a failure with a hint to retry `httpMode=http1` —
+  so a state-changing action is never executed more than once.
 - **WAF/edge diagnostics.** Responses from known edge/WAF layers (`awselb`, `cloudfront`, `cloudflare`,
   `akamai`, …) are named in the result, and `http_send_compare` flags "all responses identical → likely a
   WAF/edge block, differential not meaningful" instead of returning unhelpful diff data.
@@ -69,18 +72,18 @@ testing, with no breaking changes to the tool surface.
   byte-correct request (Host always present, Content-Type per body shape, Content-Length computed), so a
   model can no longer hand-write a malformed raw request and scope resolution is unambiguous. The raw
   `content` parameter was **removed from these tools' schemas** (`http_send_compare` builds each side from
-  `…A`/`…B` fields). Results echo the resolved `targetHost`.
+  `…A`/`…B` fields; each side is sent to its OWN resolved target and both are scope-checked, so a cross-origin
+  A-vs-B compare routes correctly). Results echo the resolved `targetHost`.
 - The **byte-exact** tools keep a raw request by design, now under an explicit name: `race_parallel_send`
   (`raw_request`), `race_batch_send` (`raw_requests`), and `intruder_attack` (`template` with `§` markers).
   These send your bytes verbatim because request smuggling / desync / single-packet races depend on exact
   bytes (e.g. a deliberately mismatched Content-Length).
 - `organizer_items` now returns url/host/method/status/notes (not just id/status).
 - Scanner issue `definitionId` uses the stable `typeIndex()`.
-- New **`docs/MONTOYA_API_REFERENCE.md`** — a maintainer reference + 2025.4.4↔2026.7 version‑split guide.
 
 ## Quality
 
-- 205 unit tests (was 183); green on `./gradlew clean check shadowJar`.
+- 228 unit tests (was 183); green on `./gradlew clean check shadowJar`.
 - Still runs on Burp Suite **2025.4.4** (compiled against Montoya API 2026.7; newer‑only APIs reflection‑guarded).
 
 ---

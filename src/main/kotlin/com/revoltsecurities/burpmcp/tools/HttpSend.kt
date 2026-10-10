@@ -48,8 +48,10 @@ object HttpSend {
      * single [send] until one returns a real response, and return that. If all fail, return the last attempt
      * (still degenerate) so the caller surfaces a clear transport diagnostic.
      */
-    fun select(requested: String, send: (mode: String) -> SentExchange): Selection {
-        if (!requested.equals(AUTO, ignoreCase = true)) {
+    fun select(requested: String, autoRetry: Boolean = true, send: (mode: String) -> SentExchange): Selection {
+        // No re-send when the caller pinned a mode, OR when auto-retry is disabled (non-idempotent request):
+        // retrying a mutating request across transports could execute a state-changing action multiple times.
+        if (!requested.equals(AUTO, ignoreCase = true) || !autoRetry) {
             return Selection(requested, send(requested), listOf(requested))
         }
         val tried = ArrayList<String>()
@@ -62,6 +64,12 @@ object HttpSend {
         }
         return Selection(AUTO, last!!, tried)
     }
+
+    /** HTTP "safe" (idempotent, non-state-changing) methods — the only ones auto-fallback may re-send. */
+    private val SAFE_METHODS = setOf("GET", "HEAD", "OPTIONS", "TRACE")
+
+    /** Whether `auto` mode may safely re-send this request across transports (true only for safe methods). */
+    fun autoRetryOk(method: String?): Boolean = method?.trim()?.uppercase() in SAFE_METHODS
 
     /**
      * If the response came from a recognisable edge/CDN/WAF layer, return its `Server` value (e.g.

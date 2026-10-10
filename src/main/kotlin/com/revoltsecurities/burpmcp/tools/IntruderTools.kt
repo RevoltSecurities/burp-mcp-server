@@ -97,11 +97,18 @@ class IntruderTools(
             val targets = generated.map { RawTarget(SessionInjector.apply(it.request, profile, host), host, port, secure) }
             // Pick a working transport before firing the whole batch: probe with the first generated request so
             // an `auto` run on a target whose HTTP/2 Burp can't negotiate falls back to http1 instead of
-            // returning an all-status-0 batch (which used to report failed=0 and look "uniform").
+            // returning an all-status-0 batch. The probe pre-sends one payload, so we only do it for SAFE
+            // (idempotent) methods — fuzzing a state-changing endpoint must not action the first payload twice.
             val requestedMode = args.strOr("httpMode", "auto")
-            val sel = HttpSend.select(requestedMode) { m ->
-                actions.sendParallel(listOf(targets.first()), m).firstOrNull()
-                    ?: SentExchange(null, null, ByteArray(0), null, "no response")
+            val probeMethod = HttpParse.parseRequest(targets.first().raw, includeBody = false).method
+            val sel = if (HttpSend.autoRetryOk(probeMethod)) {
+                HttpSend.select(requestedMode, autoRetry = true) { m ->
+                    actions.sendParallel(listOf(targets.first()), m).firstOrNull()
+                        ?: SentExchange(null, null, ByteArray(0), null, "no response")
+                }
+            } else {
+                // Non-idempotent fuzzing: no pre-send; fire the batch directly in the requested transport.
+                HttpSend.Selection(requestedMode, SentExchange(null, null, ByteArray(0), null, null), listOf(requestedMode))
             }
             // Route through Burp's managed engine (concurrency-limited/throttled/retried) when the caller asked
             // for it AND the working transport is plain `auto` (the engine negotiates like auto and takes no

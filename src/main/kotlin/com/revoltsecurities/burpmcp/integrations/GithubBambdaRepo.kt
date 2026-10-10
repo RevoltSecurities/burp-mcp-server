@@ -7,9 +7,10 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
@@ -42,8 +43,7 @@ class GithubBambdaRepo : BambdaRepo {
         if (!resp.status.isSuccess()) {
             error("GitHub API returned ${resp.status.value} listing bambdas (likely the 60/hr anonymous rate limit — retry shortly).")
         }
-        capBody(resp)
-        val root = json.parseToJsonElement(resp.bodyAsText()).jsonObject
+        val root = json.parseToJsonElement(readCapped(resp)).jsonObject
         val tree = root["tree"]?.jsonArray ?: error("Unexpected GitHub tree response (no 'tree').")
         val entries = tree.mapNotNull { node ->
             val obj = node.jsonObject
@@ -65,16 +65,30 @@ class GithubBambdaRepo : BambdaRepo {
         if (!resp.status.isSuccess()) {
             error("GitHub returned ${resp.status.value} for '$safe' (not found, or rate-limited).")
         }
-        capBody(resp)
-        return resp.bodyAsText()
+        return readCapped(resp)
     }
 
-    /** Reject an oversized response up front via Content-Length, so a single fetch can't balloon memory. */
-    private fun capBody(resp: HttpResponse) {
-        val len = resp.contentLength()
-        if (len != null && len > MAX_BODY_BYTES) {
-            error("GitHub response is ${len} bytes, exceeding the ${MAX_BODY_BYTES}-byte cap for bambda fetches.")
+    /**
+     * Read the body with a hard byte cap enforced during streaming — so a chunked / no-Content-Length response
+     * (where the header check alone wouldn't fire) still can't balloon the heap. Rejects an oversized
+     * Content-Length up front as a fast path.
+     */
+    private suspend fun readCapped(resp: HttpResponse): String {
+        resp.contentLength()?.let { if (it > MAX_BODY_BYTES) error("GitHub response is $it bytes, exceeding the ${MAX_BODY_BYTES}-byte cap.") }
+        val channel = resp.bodyAsChannel()
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        var total = 0L
+        while (true) {
+            val n = channel.readAvailable(buf, 0, buf.size)
+            if (n == -1) break
+            if (n > 0) {
+                total += n
+                if (total > MAX_BODY_BYTES) error("GitHub response exceeds the ${MAX_BODY_BYTES}-byte cap for bambda fetches.")
+                out.write(buf, 0, n)
+            }
         }
+        return out.toString(Charsets.UTF_8.name())
     }
 
     fun close() = client.close()

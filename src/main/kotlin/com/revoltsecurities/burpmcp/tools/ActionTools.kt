@@ -110,8 +110,10 @@ class ActionTools(
             val content = SessionInjector.apply(r.raw, sessionProfile().mergedWith(SessionArgs.perCallOverride(args)), t.host)
             val requestedMode = args.strOr("httpMode", "auto")
             // Resolve the transport: for auto, probe the fallback modes so a target whose HTTP/2 Burp can't
-            // negotiate still succeeds via http1 instead of silently returning a status-0 empty response.
-            val sel = HttpSend.select(requestedMode) { m -> actions.sendRequest(content, t.host, t.port, t.secure, m) }
+            // negotiate still succeeds via http1 — but ONLY for safe (idempotent) methods, so a mutating request
+            // is never re-sent across transports (which would execute a state-changing action multiple times).
+            val autoRetry = HttpSend.autoRetryOk(HttpParse.parseRequest(content, includeBody = false).method)
+            val sel = HttpSend.select(requestedMode, autoRetry) { m -> actions.sendRequest(content, t.host, t.port, t.secure, m) }
             val sent = sel.exchange
             val ok = sel.worked
             val id = "send:${sendCounter.incrementAndGet()}"

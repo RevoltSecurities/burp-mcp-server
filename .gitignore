@@ -32,6 +32,7 @@ secrets.*
 # Local reference project (its own git repo)
 docs/burp-ai-agent/
 
-# Personal research / design notes — not for public release
+# Personal research / design / maintainer notes — LOCAL ONLY, never in the public repo
 docs/research/
+docs/MONTOYA_API_REFERENCE.md
 .claude/plans/
