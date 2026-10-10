@@ -33,6 +33,43 @@ class RaceAnalyzerTest {
         assertTrue(RaceAnalyzer.isAnomalous(groups))
         assertTrue(groups.any { it.count == 1 && it.status == 200 }) // the race win
     }
+
+    // Full HTTP response with headers + body, so the body/header split is exercised.
+    private fun full(status: Int, extraHeaders: String, body: String) =
+        SentExchange(status, "text/html", "req".toByteArray(),
+            "HTTP/1.1 $status OK\r\n${extraHeaders}Content-Type: application/json\r\n\r\n$body".toByteArray())
+
+    @Test
+    fun `responses differing only by volatile headers collapse to one group`() {
+        // Same status, empty body, but a unique X-Request-Id/Date/X-Runtime per response — the old analyzer
+        // reported 5 groups ("DIVERGED"); now it must be a single group (no false race win).
+        val responses = (0 until 5).map {
+            full(200, "Date: Sat, 10 Oct 2026 05:0$it:00 GMT\r\nX-Request-Id: id-$it-${java.util.UUID.randomUUID()}\r\nX-Runtime: 0.0$it\r\n", "")
+        }
+        val groups = RaceAnalyzer.analyze(responses)
+        assertEquals(1, groups.size)
+        assertFalse(RaceAnalyzer.isAnomalous(groups))
+        assertEquals(5, groups.first().count)
+    }
+
+    @Test
+    fun `bodies differing only by a UUID or timestamp collapse to one group`() {
+        val responses = (0 until 4).map {
+            full(200, "", "{\"requestId\":\"${java.util.UUID.randomUUID()}\",\"at\":\"2026-10-10T05:0$it:00Z\",\"ok\":true}")
+        }
+        val groups = RaceAnalyzer.analyze(responses)
+        assertEquals(1, groups.size, "UUID + ISO timestamp nonces must be normalized away")
+    }
+
+    @Test
+    fun `a genuine body difference is still detected (no false negative)`() {
+        // Numbers/amounts are NOT masked — a real race signal must still split.
+        val responses = List(3) { full(200, "", "{\"balance\":100}") } + full(200, "", "{\"balance\":200}")
+        val groups = RaceAnalyzer.analyze(responses)
+        assertEquals(2, groups.size)
+        assertTrue(RaceAnalyzer.isAnomalous(groups))
+        assertTrue(groups.any { it.count == 1 }) // the divergent balance
+    }
 }
 
 class RaceToolsTest {

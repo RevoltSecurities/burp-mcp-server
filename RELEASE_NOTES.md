@@ -52,6 +52,14 @@ testing, with no breaking changes to the tool surface.
   `throttleMs` — recommended for large or rate-sensitive targets. Reflection-guarded (2026.7+); falls back to
   the parallel batch on older Burp or if the engine is unavailable.
 
+## Fixes
+
+- **Race/intruder no longer report false "DIVERGED / likely race win".** `RaceAnalyzer` grouped on the whole
+  response, so any per-request value (`Date`, `X-Request-Id`, `X-Runtime`, `Set-Cookie` nonces) made every
+  response its own group. It now hashes the **body** only (status stays a separate key) and masks in-body
+  UUIDs and ISO-8601 timestamps — while leaving numbers/amounts untouched so a genuine race signal (e.g. a
+  differing balance) is still detected.
+
 ## Enhancements
 
 - **Structured request building (prevents malformed requests).** The standard request tools — `http_send`,
