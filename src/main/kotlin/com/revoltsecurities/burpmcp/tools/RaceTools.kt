@@ -75,7 +75,7 @@ class RaceTools(
             integer("count", "How many copies to fire simultaneously.", default = 20, minimum = 2, maximum = maxCount)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
-            string("mode", "Synchronization mode.", enum = listOf("single_packet", "last_byte", "parallel"), default = "single_packet")
+            string("mode", Descriptions.RACE_MODE, enum = listOf("single_packet", "last_byte", "parallel"), default = "single_packet")
         }
         return ToolSpec("race_parallel_send", "Race: parallel send", DESC_PARALLEL, "Race", schema, mutating = true) { args ->
             val content = args.require("raw_request")
@@ -97,7 +97,7 @@ class RaceTools(
             boolean("secure", "Use TLS. " + Descriptions.TARGET_SECURE_OPT, default = true)
             string("cookie", Descriptions.SESSION_COOKIE)
             stringArray("headers", Descriptions.SESSION_HEADERS)
-            string("mode", "Synchronization mode.", enum = listOf("single_packet", "last_byte", "parallel"), default = "single_packet")
+            string("mode", Descriptions.RACE_MODE, enum = listOf("single_packet", "last_byte", "parallel"), default = "single_packet")
         }
         return ToolSpec("race_batch_send", "Race: batch send", DESC_BATCH, "Race", schema, mutating = true) { args ->
             val raws = args.strList("raw_requests")

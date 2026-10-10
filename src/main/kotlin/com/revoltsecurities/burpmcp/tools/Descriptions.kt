@@ -18,6 +18,16 @@ object Descriptions {
             "(Host, Content-Type and Content-Length filled automatically) — use the structured fields to avoid " +
             "hand-writing raw requests. Example: \"GET /health HTTP/1.1\\r\\nHost: example.com\\r\\n\\r\\n\"."
 
+    const val RACE_MODE =
+        "Race synchronization mode (pick by the target's protocol): " +
+            "'single_packet' = HTTP/2 single-packet attack — all requests coalesced by Burp's engine " +
+            "(sendRequests + HTTP/2), the tightest window; use when the target speaks HTTP/2. " +
+            "'last_byte' = HTTP/1.1 last-byte synchronization — one raw connection per request, every byte but " +
+            "the last pre-sent, then the final bytes released simultaneously; use when the target is HTTP/1.1 " +
+            "(or HTTP/2 won't negotiate). " +
+            "'parallel' = plain concurrent HTTP/1.1 sends — loosest timing, widest compatibility, a fallback " +
+            "when neither sync mode works. Default single_packet."
+
     const val RAW_REQUEST_BYTE_EXACT =
         "Provide a COMPLETE, byte-exact raw HTTP request (request-line, headers, blank line, optional body; " +
             "CRLF-separated, include a Host header). This tool sends your bytes verbatim — it does NOT rebuild " +
