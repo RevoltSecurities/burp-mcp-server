@@ -119,7 +119,9 @@ class MainTab(
             if (latestReleaseUrl.isNotEmpty()) Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(latestReleaseUrl), null)
         }
         Timer(1000) { refreshDashboard() }.apply { isRepeats = true }.start()
-        if (store.current.updateCheckEnabled) checkForUpdatesAsync()
+        // Run on the EDT: extension load is off-EDT, and checkForUpdatesAsync touches Swing before it hands the
+        // network work to a daemon thread.
+        if (store.current.updateCheckEnabled) SwingUtilities.invokeLater { checkForUpdatesAsync() }
     }
 
     private fun buildRoot(): JPanel {
@@ -232,18 +234,28 @@ class MainTab(
         }
         latestReleaseUrl = latest.url
         openReleaseButton.isEnabled = latest.url.isNotEmpty()
-        if (com.revoltsecurities.burpmcp.config.VersionCheck.isNewer(current, latest.version)) {
-            updateBadge.set("UPDATE", DesignTokens.warning)
-            updateLabel.text = "New version v${latest.version} available — you have v$current. Please update."
-            updateLabel.foreground = DesignTokens.warning
-            updateNotesArea.text = "What's new in v${latest.version}\n\n${latest.notes}"
-            updateNotesArea.caretPosition = 0
-            updateNotesScroll.isVisible = true
-        } else {
-            updateBadge.set("UP TO DATE", DesignTokens.success)
-            updateLabel.text = "You're on the latest release (v$current)."
-            updateLabel.foreground = DesignTokens.textMuted
-            updateNotesScroll.isVisible = false
+        val vc = com.revoltsecurities.burpmcp.config.VersionCheck
+        when {
+            vc.isNewer(current, latest.version) -> {
+                updateBadge.set("UPDATE", DesignTokens.warning)
+                updateLabel.text = "New version v${latest.version} available — you have v$current. Please update."
+                updateLabel.foreground = DesignTokens.warning
+                updateNotesArea.text = "What's new in v${latest.version}\n\n${latest.notes}"
+                updateNotesArea.caretPosition = 0
+                updateNotesScroll.isVisible = true
+            }
+            vc.isNewer(latest.version, current) -> { // running a build ahead of the latest published release
+                updateBadge.set("DEV", DesignTokens.accent)
+                updateLabel.text = "Running v$current, ahead of the latest published release (v${latest.version})."
+                updateLabel.foreground = DesignTokens.textMuted
+                updateNotesScroll.isVisible = false
+            }
+            else -> {
+                updateBadge.set("UP TO DATE", DesignTokens.success)
+                updateLabel.text = "You're on the latest release (v$current)."
+                updateLabel.foreground = DesignTokens.textMuted
+                updateNotesScroll.isVisible = false
+            }
         }
         updateNotesScroll.parent?.revalidate()
     }

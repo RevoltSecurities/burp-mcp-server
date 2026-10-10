@@ -1,3 +1,22 @@
+# Revolt MCP Server v1.1.1
+
+Patch for the v1.1.0 dashboard update check (found by code review).
+
+- **No more UI stall.** The GitHub client now has explicit connect/request/socket timeouts (5s/10s/10s), so a
+  captive portal or half-open socket can't leave the dashboard stuck on "CHECKING" with the button disabled.
+- **EDT-correct.** The on-load update check is dispatched on the Swing EDT (extension init runs off it), so no
+  Swing component is touched from a background thread.
+- **Robust parsing.** `releases/latest` parsing returns null on any malformed/unexpected payload (a wrong JSON
+  type no longer throws).
+- **Dev builds labelled correctly.** A build *ahead* of the latest published release now shows "DEV — ahead of
+  the latest release" instead of a misleading "up to date".
+- **Lazy + shared client.** The update-check HTTP client is created only when a check actually runs (no cost when
+  disabled), and both GitHub clients (releases + bambda repo) share one hardened factory.
+
+No functional/API changes to the tools.
+
+---
+
 # Revolt MCP Server v1.1.0
 
 Hardening, correctness, and resilience release. Fixes found by adversarial code review and live‑agent field

@@ -55,4 +55,11 @@ class GithubReleaseParseTest {
         assertNull(GithubReleaseParse.parse("""{"message":"Not Found"}"""))
         assertNull(GithubReleaseParse.parse("not json"))
     }
+
+    @Test
+    fun `returns null (never throws) when a field is the wrong JSON type`() {
+        // tag_name as an array must not throw .jsonPrimitive — the parser honours its null contract.
+        assertNull(GithubReleaseParse.parse("""{"tag_name":["v1.2.0"],"body":"x"}"""))
+        assertNull(GithubReleaseParse.parse("""{"tag_name":{"a":1}}"""))
+    }
 }

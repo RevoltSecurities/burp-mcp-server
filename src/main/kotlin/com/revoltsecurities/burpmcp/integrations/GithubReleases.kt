@@ -1,7 +1,6 @@
 package com.revoltsecurities.burpmcp.integrations
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -14,17 +13,17 @@ import kotlinx.serialization.json.jsonPrimitive
 /** The latest published release, as reported by GitHub. */
 data class LatestRelease(val tag: String, val version: String, val notes: String, val url: String)
 
-/** Pure parser for GitHub's `releases/latest` JSON → [LatestRelease]. Unit-tested. */
+/** Pure parser for GitHub's `releases/latest` JSON → [LatestRelease]. Returns null on ANY malformed input. */
 object GithubReleaseParse {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun parse(body: String): LatestRelease? {
-        val o = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull() ?: return null
-        val tag = o["tag_name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
+    fun parse(body: String): LatestRelease? = runCatching {
+        val o = json.parseToJsonElement(body).jsonObject
+        val tag = o["tag_name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@runCatching null
         val notes = o["body"]?.jsonPrimitive?.contentOrNull ?: ""
         val url = o["html_url"]?.jsonPrimitive?.contentOrNull ?: ""
-        return LatestRelease(tag = tag, version = tag.trimStart('v', 'V'), notes = notes, url = url)
-    }
+        LatestRelease(tag = tag, version = tag.trimStart('v', 'V'), notes = notes, url = url)
+    }.getOrNull()
 }
 
 /**
@@ -34,10 +33,15 @@ object GithubReleaseParse {
  */
 class GithubReleases(private val repo: String = "RevoltSecurities/burp-mcp-server") {
 
-    private val client = HttpClient(CIO) { followRedirects = false }
+    // Lazy + synchronized: no CIO engine/thread-pool is allocated until an update check actually runs, so a
+    // user who disabled the check pays no startup cost.
+    @Volatile
+    private var client: HttpClient? = null
+
+    private fun client(): HttpClient = client ?: synchronized(this) { client ?: GithubHttp.newClient().also { client = it } }
 
     suspend fun latest(): LatestRelease? = runCatching {
-        val resp = client.get("https://api.github.com/repos/$repo/releases/latest") {
+        val resp = client().get("https://api.github.com/repos/$repo/releases/latest") {
             header("User-Agent", "revolt-mcp-server")
             header("Accept", "application/vnd.github+json")
         }
@@ -45,5 +49,7 @@ class GithubReleases(private val repo: String = "RevoltSecurities/burp-mcp-serve
         GithubReleaseParse.parse(resp.bodyAsText())
     }.getOrNull()
 
-    fun close() = runCatching { client.close() }.let { }
+    fun close() {
+        runCatching { client?.close() }
+    }
 }

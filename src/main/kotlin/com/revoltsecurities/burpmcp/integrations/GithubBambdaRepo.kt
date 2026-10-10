@@ -2,8 +2,6 @@ package com.revoltsecurities.burpmcp.integrations
 
 import com.revoltsecurities.burpmcp.tools.BambdaRepo
 import com.revoltsecurities.burpmcp.tools.BambdaRepoEntry
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
@@ -26,7 +24,7 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 class GithubBambdaRepo : BambdaRepo {
 
-    private val client = HttpClient(CIO) { followRedirects = false }
+    private val client = GithubHttp.newClient()
     private val json = Json { ignoreUnknownKeys = true }
 
     // Single @Volatile holder so readers never see a fresh list paired with a stale timestamp.
