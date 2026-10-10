@@ -78,6 +78,10 @@ testing, with no breaking changes to the tool surface.
   (`raw_request`), `race_batch_send` (`raw_requests`), and `intruder_attack` (`template` with `§` markers).
   These send your bytes verbatim because request smuggling / desync / single-packet races depend on exact
   bytes (e.g. a deliberately mismatched Content-Length).
+- **Dashboard update check.** The console now checks GitHub for the latest release on load (best-effort,
+  toggleable) and shows a theme-aware banner — an "UPDATE" pill with "new version vX.Y.Z available, please
+  update" and the latest release's notes ("what's new"), or "UP TO DATE" when you're current. A "Check now"
+  button and a "Copy release link" action are provided. Only GitHub's public API is called (no telemetry).
 - `organizer_items` now returns url/host/method/status/notes (not just id/status).
 - Scanner issue `definitionId` uses the stable `typeIndex()`.
 

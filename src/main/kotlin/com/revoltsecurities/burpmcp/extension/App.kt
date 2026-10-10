@@ -7,6 +7,7 @@ import com.revoltsecurities.burpmcp.config.SettingsStore
 import com.revoltsecurities.burpmcp.events.EventBuffer
 import com.revoltsecurities.burpmcp.events.MontoyaEventSource
 import com.revoltsecurities.burpmcp.integrations.GithubBambdaRepo
+import com.revoltsecurities.burpmcp.integrations.GithubReleases
 import com.revoltsecurities.burpmcp.integrations.KtorWebhookSender
 import com.revoltsecurities.burpmcp.integrations.SdkExternalClients
 import com.revoltsecurities.burpmcp.mcp.McpServerSupervisor
@@ -32,6 +33,7 @@ class App(private val api: MontoyaApi) {
     private var eventSource: MontoyaEventSource? = null
     private var sessionHandling: MontoyaSessionHandling? = null
     private var bambdaRepo: GithubBambdaRepo? = null
+    private var githubReleases: GithubReleases? = null
 
     fun initialize() {
         api.extension().setName(Defaults.EXTENSION_NAME)
@@ -80,7 +82,9 @@ class App(private val api: MontoyaApi) {
 
         api.logging().logToOutput("${Defaults.EXTENSION_NAME} v${Defaults.VERSION} loading — ${env.describe()}")
 
-        val mainTab = MainTab(env, settings, supervisor, refreshService)
+        val releases = GithubReleases()
+        githubReleases = releases
+        val mainTab = MainTab(env, settings, supervisor, refreshService, releases)
         api.userInterface().registerSuiteTab(Defaults.EXTENSION_NAME, mainTab.component)
 
         // Auto-start if the user previously enabled the server.
@@ -98,6 +102,7 @@ class App(private val api: MontoyaApi) {
         externalClients?.shutdown()
         webhookSender?.close()
         bambdaRepo?.close()
+        githubReleases?.close()
         api.logging().logToOutput("${Defaults.EXTENSION_NAME} unloaded.")
     }
 }

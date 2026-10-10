@@ -44,6 +44,7 @@ class MainTab(
     private val store: SettingsStore,
     private val supervisor: McpServerSupervisor,
     private val refreshService: com.revoltsecurities.burpmcp.tools.SessionRefreshService? = null,
+    private val releases: com.revoltsecurities.burpmcp.integrations.GithubReleases? = null,
 ) {
     private val headerBadge = StatusBadge("STOPPED")
 
@@ -63,6 +64,16 @@ class MainTab(
     private val dashTransport = JLabel()
     private val dashUrl = JLabel()
     private val dashCalls = JLabel()
+
+    // updates
+    private val updateBadge = StatusBadge("—")
+    private val updateLabel = JLabel("Update status unknown.")
+    private val updateNotesArea = JTextArea(10, 54).apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+    private val updateNotesScroll = JScrollPane(updateNotesArea)
+    private val updateCheckBox = JCheckBox("Check for updates on load")
+    private val checkNowButton = JButton("Check now")
+    private val openReleaseButton = JButton("Copy release link")
+    @Volatile private var latestReleaseUrl: String = ""
 
     // tools
     private val toolToggles = linkedMapOf<String, ToggleSwitch>()
@@ -100,7 +111,15 @@ class MainTab(
         supervisor.addListener { status -> SwingUtilities.invokeLater { renderStatus(status) } }
         startButton.addActionListener { onStart() }
         stopButton.addActionListener { onStop() }
+        updateCheckBox.isSelected = store.current.updateCheckEnabled
+        updateCheckBox.addActionListener { store.save(store.current.copy(updateCheckEnabled = updateCheckBox.isSelected)) }
+        checkNowButton.addActionListener { checkForUpdatesAsync() }
+        openReleaseButton.isEnabled = false
+        openReleaseButton.addActionListener {
+            if (latestReleaseUrl.isNotEmpty()) Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(latestReleaseUrl), null)
+        }
         Timer(1000) { refreshDashboard() }.apply { isRepeats = true }.start()
+        if (store.current.updateCheckEnabled) checkForUpdatesAsync()
     }
 
     private fun buildRoot(): JPanel {
@@ -143,7 +162,37 @@ class MainTab(
         add("URL:", dashUrl)
         add("Tool calls:", dashCalls)
         c.gridx = 0; c.gridy = row; c.gridwidth = 2
-        p.add(JLabel("Live metrics refresh every second.").apply { foreground = DesignTokens.textMuted }, c)
+        p.add(JLabel("Live metrics refresh every second.").apply { foreground = DesignTokens.textMuted }, c); row++
+
+        // ---- Updates (theme-aware: StatusBadge pill + DesignTokens colours, blends with Burp's look) ----
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.insets = Insets(DesignTokens.S4, 6, 4, 6)
+        p.add(JLabel("Updates").apply { font = DesignTokens.baseFont.deriveFont(java.awt.Font.BOLD) }, c); row++
+        c.insets = Insets(6, 6, 6, 6)
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2
+        p.add(
+            JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+                isOpaque = false
+                add(updateBadge)
+                add(updateLabel)
+            },
+            c,
+        ); row++
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2
+        p.add(
+            JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+                isOpaque = false
+                add(checkNowButton)
+                add(openReleaseButton)
+                add(updateCheckBox)
+            },
+            c,
+        ); row++
+        updateNotesArea.font = DesignTokens.baseFont
+        updateNotesArea.foreground = DesignTokens.text
+        updateNotesScroll.border = BorderFactory.createTitledBorder("What's new in the latest release")
+        updateNotesScroll.isVisible = false
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.fill = GridBagConstraints.BOTH; c.weightx = 1.0; c.weighty = 1.0
+        p.add(updateNotesScroll, c)
         return p
     }
 
@@ -153,6 +202,50 @@ class MainTab(
         dashTransport.text = s.transport
         dashUrl.text = s.boundUrl.ifEmpty { "—" }
         dashCalls.text = supervisor.toolMetrics.totalCalls().toString()
+    }
+
+    // ---- Update check (best-effort GitHub latest-release vs running build) ----
+
+    private fun checkForUpdatesAsync() {
+        val r = releases ?: run {
+            updateBadge.set("—", DesignTokens.textMuted); updateLabel.text = "Update check is unavailable in this build."
+            return
+        }
+        updateBadge.set("CHECKING", DesignTokens.accent)
+        updateLabel.text = "Checking GitHub for the latest release…"
+        updateLabel.foreground = DesignTokens.textMuted
+        checkNowButton.isEnabled = false
+        Thread({
+            val latest = runCatching { kotlinx.coroutines.runBlocking { r.latest() } }.getOrNull()
+            SwingUtilities.invokeLater { renderUpdate(latest); checkNowButton.isEnabled = true }
+        }, "revoltmcp-updatecheck").apply { isDaemon = true }.start()
+    }
+
+    private fun renderUpdate(latest: com.revoltsecurities.burpmcp.integrations.LatestRelease?) {
+        val current = com.revoltsecurities.burpmcp.config.Defaults.VERSION
+        if (latest == null) {
+            updateBadge.set("OFFLINE", DesignTokens.textMuted)
+            updateLabel.text = "Couldn't reach GitHub (offline or rate-limited). You're on v$current."
+            updateLabel.foreground = DesignTokens.textMuted
+            updateNotesScroll.isVisible = false; openReleaseButton.isEnabled = false
+            return
+        }
+        latestReleaseUrl = latest.url
+        openReleaseButton.isEnabled = latest.url.isNotEmpty()
+        if (com.revoltsecurities.burpmcp.config.VersionCheck.isNewer(current, latest.version)) {
+            updateBadge.set("UPDATE", DesignTokens.warning)
+            updateLabel.text = "New version v${latest.version} available — you have v$current. Please update."
+            updateLabel.foreground = DesignTokens.warning
+            updateNotesArea.text = "What's new in v${latest.version}\n\n${latest.notes}"
+            updateNotesArea.caretPosition = 0
+            updateNotesScroll.isVisible = true
+        } else {
+            updateBadge.set("UP TO DATE", DesignTokens.success)
+            updateLabel.text = "You're on the latest release (v$current)."
+            updateLabel.foreground = DesignTokens.textMuted
+            updateNotesScroll.isVisible = false
+        }
+        updateNotesScroll.parent?.revalidate()
     }
 
     // ---- Server ----

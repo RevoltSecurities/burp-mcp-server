@@ -41,6 +41,8 @@ data class McpSettings(
     val sessionProfile: SessionProfile = SessionProfile(),
     /** Optional auto-login config to refresh a rotating session token (request encrypted at rest). */
     val sessionLogin: SessionLogin = SessionLogin(),
+    /** Check GitHub for a newer release on load and show an update banner in the dashboard. */
+    val updateCheckEnabled: Boolean = true,
 ) {
     fun sanitized(): McpSettings = copy(
         port = port.coerceIn(1, 65_535),
